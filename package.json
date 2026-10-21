@@ -1,0 +1,39 @@
+{
+  "name": "omp-completion-judge",
+  "version": "0.1.0",
+  "description": "Advisory completion judgment using OMP native recap, judge, and stop-hook continuation",
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JSRRosenbaum/omp-completion-judge.git"
+  },
+  "files": [
+    "extensions/completion-judge.ts",
+    "lib/jev-completion-contract.ts",
+    "lib/jev-completion-view.ts",
+    "lib/jev-judge.ts",
+    "lib/omp-judgment-host.ts",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "omp": {
+    "extensions": ["./extensions/completion-judge.ts"]
+  },
+  "scripts": {
+    "test": "bun test"
+  },
+  "peerDependencies": {
+    "@oh-my-pi/pi-coding-agent": "18.12.5",
+    "@oh-my-pi/pi-tui": "18.12.5"
+  },
+  "peerDependenciesMeta": {
+    "@oh-my-pi/pi-coding-agent": { "optional": true },
+    "@oh-my-pi/pi-tui": { "optional": true }
+  },
+  "devDependencies": {
+    "@oh-my-pi/pi-tui": "18.12.5"
+  },
+  "keywords": ["omp-package", "omp", "extension", "completion", "judge"]
+}
