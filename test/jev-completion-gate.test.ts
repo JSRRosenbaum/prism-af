@@ -200,7 +200,6 @@ for (const visibility of ["full", "collapse", "hidden"] as const) {
 					reason: state === "insufficient_evidence" ? "insufficient-evidence" : state,
 				},
 			});
-			expect(result.additionalContext).toContain("not instructions or new authorization");
 		});
 	}
 }

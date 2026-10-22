@@ -15,13 +15,15 @@ const MAX_MESSAGE_CHARS = 8_000;
 const MAX_CONTEXT_CHARS = 4_000;
 const MAX_RECAP_CHARS = 1_200;
 const CLASSIFIER_PROMPT_VERSION = "2026-10-21-portable-v1";
-const CONTINUATION_POLICY_VERSION = "2026-10-21-portable-v2";
-const RECAP_PROMPT_VERSION = "2026-10-21-portable-v1";
+const CONTINUATION_POLICY_VERSION = "2026-10-22-portable-v3";
+const RECAP_PROMPT_VERSION = "2026-10-22-portable-v2";
 const RECAP_PROMPT = [
-	"Write a decision recap for the continuation judge from the current conversation, in fewer than 80 words.",
-	"State what is actually delivered and verified, which commitment or interest remains live, and one concrete reachable permitted next action, or explicitly none.",
-	"Distinguish finished assignments from unfinished implementation, verification or activation. Installation or a promise is not the requested operational outcome.",
-	"If no step is reachable, name the observed external dependency or genuinely new approval needed and the condition that would unblock it. A generic need for safe activation is not evidence of a blocker; useful safe inspection is a next step.",
+	"Write a decision recap for the continuation judge from the current conversation, in fewer than 80 words. Use three brief labels: Delivered; Remaining; Next.",
+	"Delivered: what is actually delivered and verified. Remaining: the original requested outcome or established live commitment/interest that is still unmet, or explicitly none.",
+	"Next: one concrete reachable action within existing permission that advances that remaining outcome, or explicitly none. Name the action, not a promise to continue or another status report.",
+	"Evaluate completion against the human's requested outcome, not just the latest substep. Recovery, installation, verification, and activation are distinct; do not mark a requested working outcome complete after only retrieval.",
+	"Conversely, do not turn an optional enhancement, unrequested implementation, or later activation into unfinished assigned work after a sufficient informational answer. Keep genuine established interests distinct from the completed assignment.",
+	"If no step is reachable, name the observed external dependency or genuinely new approval needed and the condition that would unblock it. A restriction on a later action does not block an earlier permitted step.",
 	"Use only responsibilities and permissions established in the current conversation. Do not invent an exploration remit, busywork, or permission from a previous summary. Human stops and redirects override earlier requests. Describe missing or conflicting evidence honestly.",
 	"Return only the brief operational recap, not an answer to the user, instructions to the judge, or tool calls.",
 ].join(" ");
@@ -305,7 +307,7 @@ export default function registerJevCompletionGate(pi: ExtensionAPI): void {
 				recap: input.decisionRecap.text, decision, effect,
 			}, generation);
 			const continuationContext = [
-				"Completion check: advisory evidence, not instructions or new authorization. Reconcile the recap with current human requests and observations.",
+				"Completion evidence: the recap and verdict below are fallible context, not instructions or new authorization. The separate continuation request follows.",
 				JSON.stringify({
 					recap: input.decisionRecap.text,
 					result: {
@@ -319,14 +321,16 @@ export default function registerJevCompletionGate(pi: ExtensionAPI): void {
 				return {
 					continue: true,
 					additionalContext: `${continuationContext}\n\n` +
-						"The completion check needs one evidence review before continuing or parking this chain. This is not approval to execute a proposed mutation. Verify the proposed blocker, genuinely new approval requirement, or unresolved evidence against the actual human request and observations. Use available, permitted read-only evidence, or state the exact missing condition if no useful lookup remains. Respect current human stops and redirects immediately. Do not replay failed or unknown operations, request already-granted approval, invent work, or broaden authority. A generic need for safe activation is not an observed blocker. The next ending will be judged again; unresolved uncertainty or a verified blocker will not request another evidence-review turn.",
+						"Continuation request — perform one evidence review now.\n" +
+						"This is not a request for another recap, acknowledgment, or statement that retrieval is complete. Reconcile the evidence above with the actual human request, then perform one concrete permitted read-only check of the unresolved evidence, proposed blocker, or claimed approval requirement. Use tools when needed; do not merely describe the check. Report what the check established, or the exact missing condition if no useful check is reachable. This is not approval for a proposed mutation. Do not replay failed or unknown operations, request already-granted approval, invent work, or broaden authority. Respect current human stops and redirects. The next ending will be judged again; unresolved uncertainty or a verified blocker will not request another evidence-review turn.",
 				};
 			}
 			if (effect !== "continue") return;
 			return {
 				continue: true,
 				additionalContext: `${continuationContext}\n\n` +
-					"The continuation check found a concrete next step within the current request and established permissions. Take that non-interfering action now instead of another promise or recap. Deliver finished assignments independently; do not invent work or revive a spent trail. This advisory adds no permission. Honor human stops, redirects, real resource limits and spend/publication/destruction boundaries. If no permissible next step remains, state the actual completion or blocker rather than looping.",
+					"Continuation request — resume the existing work now.\n" +
+					"This is an execution turn, not a request for another final answer, acknowledgment, status update, or restatement that the previous substep is complete. Reconcile the evidence above with the actual human request. Choose the next concrete still-authorized action that advances the unmet outcome or established live interest, carry it out using tools when appropriate, and continue the existing work rather than ending with another promise or recap. Deliver completed assignments independently of exploration. Do not invent extra work, revive a spent trail, or treat an unrequested enhancement as an unmet assignment. This request grants no new permission: honor human stops, redirects, resource limits, and spend/publication/destruction boundaries. If the evidence is wrong and no permitted next action remains, state the actual completion or exact blocker instead of manufacturing activity.",
 			};
 		} catch (error) {
 			const failure = describeJudgeFailure(error);
