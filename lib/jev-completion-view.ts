@@ -1,6 +1,6 @@
 import type { Component } from "@oh-my-pi/pi-tui";
 import { renderOutputBlock } from "@oh-my-pi/pi-tui/render";
-import { truncateToWidth, wrapTextWithAnsi } from "@oh-my-pi/pi-tui/utils";
+import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@oh-my-pi/pi-tui/utils";
 import type { Theme, ThemeColor } from "@oh-my-pi/pi-tui/theme";
 import { COMPLETION_STATES, type CompletionDecision } from "./jev-completion-contract.ts";
 
@@ -39,17 +39,26 @@ export function renderCompletionView(view: CompletionView, theme: Theme, width: 
 		const probability = selected && decision?.probabilities?.[selected.key];
 		const score = typeof probability === "number" && Number.isFinite(probability) && probability >= 0 && probability <= 1
 			? ` · ${(probability * 100).toFixed(1)}%` : "";
-		const result = pending ? "Judging..." : effect === "stop" ? "stop" : effect === "continue" ? "continuation requested" : effect;
-		const label = pending ? result! : `${selected?.label ?? "No verdict"} · ${result}${score}`;
-		const rule = theme.fg(color, theme.symbol("tree.horizontal").repeat(width));
+		const result = pending ? "Judging..." : effect === "continue" ? "continuation requested" : effect;
+		const label = pending ? result! : effect === "stop"
+			? `${selected?.label ?? "No verdict"}${score}`
+			: `${selected?.label ?? "No verdict"} · ${result}${score}`;
+		const title = truncateToWidth(label, width >= 5 ? width - 4 : width);
+		const horizontal = theme.symbol("tree.horizontal");
+		const ruleWidth = Math.max(0, width - visibleWidth(title) - 2);
+		const leftWidth = Math.floor(ruleWidth / 2);
+		const titleLine = theme.bold(theme.fg(color, title));
+		const header = width < 5 ? titleLine
+			: theme.fg(color, `${horizontal.repeat(leftWidth)} `) + titleLine
+				+ theme.fg(color, ` ${horizontal.repeat(ruleWidth - leftWidth)}`);
+		if (effect === "stop") return header;
 		const recap = wrapTextWithAnsi(view.recap?.replace(/\s+/g, " ").trim() || "Recap unavailable.", width);
 		const preview = recap.slice(0, 2).map(line => truncateToWidth(line, width));
 		if (recap.length > 2) preview[1] = `${truncateToWidth(recap[1]!, width - 1, "")}…`;
 		return [
-			rule,
-			theme.bold(theme.fg(color, truncateToWidth(label, width))),
+			header,
 			...preview.map(line => theme.fg("muted", line)),
-			rule,
+			theme.fg(color, horizontal.repeat(width)),
 		].join("\n");
 	}
 	const outcome = failure ?? (pending ? "Judging..." : effect === "stop"

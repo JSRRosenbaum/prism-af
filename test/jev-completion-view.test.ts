@@ -171,20 +171,38 @@ test("human-control uncertainty does not replace the selected work state or inve
 	expect(plain.match(/%/g)).toHaveLength(1);
 });
 
-test("compact notices show effect-colored headers, selected probability and a muted recap", () => {
-	for (const [effect, color, result] of [
-		["continue", "success", "continuation requested"],
-		["review", "warning", "review"],
-		["stop", "error", "stop"],
-	] as const) {
+test("collapsed stops occupy one ruled result line without their recap", () => {
+	for (const choice of ["complete", "stopped"] as const) {
 		const rendered = renderCompletionView({
-			recap: "Verify the native import next.",
-			decision: { choice: "actionable", confidence: 0.99, probabilities: { actionable: 0.62 } }, effect,
+			recap: "This recap must not occupy the stopped card.",
+			decision: { choice, probabilities: { [choice]: 0.9 } }, effect: "stop",
 		}, theme, 100, "collapse");
 		const rows = rendered.split("\n");
-		expect(rows[1]).toBe(theme.bold(theme.fg(color, `Actionable · ${result} · 62.0%`)));
-		expect(rows[2]).toBe(theme.fg("muted", "Verify the native import next."));
-		expect(rows[0]).toBe(rows.at(-1)!);
+		expect(rows).toHaveLength(1);
+		const plain = stripVTControlCharacters(rows[0]!);
+		expect(plain).toContain(COMPLETION_STATES[choice].label);
+		expect(plain).toContain("90.0%");
+		expect(plain).not.toContain("This recap");
+		expect(plain).toStartWith(theme.symbol("tree.horizontal"));
+		expect(plain).toEndWith(theme.symbol("tree.horizontal"));
+		expect(visibleWidth(rows[0]!)).toBe(100);
+	}
+});
+
+test("collapsed continuation and review headers share their top rule and retain the recap", () => {
+	for (const effect of ["continue", "review"] as const) {
+		const rows = renderCompletionView({
+			recap: "Verify the native import next.",
+			decision: { choice: "actionable", probabilities: { actionable: 0.62 } }, effect,
+		}, theme, 100, "collapse").split("\n");
+		expect(rows).toHaveLength(3);
+		const header = stripVTControlCharacters(rows[0]!);
+		expect(header).toContain(COMPLETION_STATES.actionable.label);
+		expect(header).toContain("62.0%");
+		expect(header).toStartWith(theme.symbol("tree.horizontal"));
+		expect(header).toEndWith(theme.symbol("tree.horizontal"));
+		expect(rows[1]).toBe(theme.fg("muted", "Verify the native import next."));
+		expect(stripVTControlCharacters(rows[2]!)).toBe(theme.symbol("tree.horizontal").repeat(100));
 		expect(visibleWidth(rows[0]!)).toBe(100);
 	}
 });
@@ -203,24 +221,29 @@ test("compact pending, failure and invalid probabilities never invent percentage
 	}
 });
 
-test("compact rules span every terminal width without overflow; hidden cards occupy no rows", () => {
-	const data = {
-		recap: "Verify 日本語 👩‍💻 and long_unbroken_identifiers_without_losing_the_frame. ".repeat(8),
-		decision: { choice: "complete" as const, probabilities: { complete: 0.95 } }, effect: "stop",
-	};
-	for (const preset of ["unicode", "ascii", "nerd"] as const) {
-		const current = loadThemeSync("dark", { symbolPresetOverride: preset });
-		const card = createCompletionView(data, () => current, "collapse");
-		expect(card.render(0)).toEqual([]);
-		for (const width of [1, 2, 4, 20, 40, 100, 321]) {
-			const rows = card.render(width);
-			expect(rows.length).toBeGreaterThanOrEqual(4);
-			expect(rows.length).toBeLessThanOrEqual(5);
-			expect(stripVTControlCharacters(rows[0]!)).toBe(current.symbol("tree.horizontal").repeat(width));
-			expect(rows.at(-1)).toBe(rows[0]);
-			for (const row of rows) expect(visibleWidth(row)).toBeLessThanOrEqual(width);
+test("compact cards fit every terminal width across symbol sets; hidden cards occupy no rows", () => {
+	for (const effect of ["stop", "continue", "review"] as const) {
+		const data = {
+			recap: "Verify 日本語 👩‍💻 and long_unbroken_identifiers_without_losing_the_frame. ".repeat(8),
+			decision: { choice: effect === "stop" ? "complete" as const : "actionable" as const,
+				probabilities: { complete: 0.95, actionable: 0.9 } }, effect,
+		};
+		for (const preset of ["unicode", "ascii", "nerd"] as const) {
+			const current = loadThemeSync("dark", { symbolPresetOverride: preset });
+			const card = createCompletionView(data, () => current, "collapse");
+			expect(card.render(0)).toEqual([]);
+			for (const width of [1, 2, 4, 5, 6, 20, 40, 100, 321]) {
+				const rows = card.render(width);
+				if (effect === "stop") expect(rows).toHaveLength(1);
+				else {
+					expect(rows).toHaveLength(4);
+					expect(stripVTControlCharacters(rows.at(-1)!)).toBe(current.symbol("tree.horizontal").repeat(width));
+				}
+				expect(visibleWidth(rows[0]!)).toBe(width);
+				for (const row of rows) expect(visibleWidth(row)).toBeLessThanOrEqual(width);
+			}
+			expect(createCompletionView(data, () => current, "hidden").render(100)).toEqual([]);
 		}
-		expect(createCompletionView(data, () => current, "hidden").render(100)).toEqual([]);
 	}
 });
 
@@ -229,12 +252,12 @@ test("compact recap truncation is two-line, reversible on resize, and leaves the
 	const data = { recap, decision: { choice: "actionable" as const }, effect: "continue" };
 	const card = createCompletionView(data, () => theme, "collapse");
 	const narrow = card.render(24).map(stripVTControlCharacters);
-	expect(narrow).toHaveLength(5);
-	expect(narrow[3]).toEndWith("…");
+	expect(narrow).toHaveLength(4);
+	expect(narrow[2]).toEndWith("…");
 	expect(narrow.join("\n")).not.toContain("Do not publish.");
 	const wide = card.render(160).map(stripVTControlCharacters);
-	expect(wide).toHaveLength(4);
-	expect(wide[2]).toBe(recap);
+	expect(wide).toHaveLength(3);
+	expect(wide[1]).toBe(recap);
 	expect(data.recap).toBe(recap);
 	expect(card.render(24).map(stripVTControlCharacters)).toEqual(narrow);
 });

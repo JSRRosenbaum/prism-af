@@ -4,9 +4,10 @@
 
 - Show full recap and decision cards by default in the native terminal UI.
 - Add `full`, `collapse`, and `hidden` presentation modes; `/completion-cards` changes the latest display without rejudging, and `--save` persists a startup default.
-- Render collapsed verdicts as compact notices with full-width native-theme rules above and below, a red/amber/green outcome/routing/probability header, and a muted recap preview capped at two lines. Reflow on resize and ellipsize only the visible preview; model context is unchanged.
+- In collapse mode, place the outcome/routing/probability inside a full-width native-theme header rule. Stop results occupy one line with no recap or bottom rule; other results keep a muted recap preview capped at two lines and a bottom rule. Red/amber/green semantics, resize reflow, and full mode are unchanged; model context is unchanged.
 - Retire the editor-bound card before the next input or native continuation, preserving visible settled cards as terminal scrollback notices instead of leaving the previous verdict below a new prompt. Hidden/pending cards leave no snapshot; late judgments cannot restore a retired card.
 - Verify full/collapse/hidden prompt ordering in fresh isolated OMP 18.12.6 ANSI terminals with synthetic recap/judge results; this is not live-session activation or structured-client transcript persistence.
+- Verify the shorter collapsed stop/continuation/review layouts and 120→60-column resize in a fresh isolated OMP 18.12.6 ANSI terminal with synthetic verdicts; full-mode stop details remain available.
 - Read startup visibility from `JEV_COMPLETION_GATE_VISIBILITY` before `completion-judge.json` under `PI_CODING_AGENT_DIR` (path override: `JEV_COMPLETION_GATE_CONFIG`); settings errors fall back to full presentation without disabling judgment.
 - Provide model continuations compact recap, JSON verdict, human-control result, and route/effect as advisory context independently of UI visibility; no permission or routing policy changes.
 - Separate continuation requests from advisory recap/verdict evidence: execution asks for an authorized next action instead of another final/status recap; review asks for one actual permitted read-only check. No routing or authorization changes.

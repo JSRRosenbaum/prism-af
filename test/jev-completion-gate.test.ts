@@ -547,7 +547,7 @@ for (const mode of ["full", "collapse", "hidden"]) {
 		await gate.settle(turn().event);
 		await gate.submit("Now inspect the other handler.");
 		expect(gate.widgetText()).toBe("");
-		const archived = gate.notifications.filter(notice => notice.text.replace(/[│\s]+/g, " ").includes(defaultRecap));
+		const archived = gate.notifications;
 		if (mode === "hidden") {
 			expect(archived).toEqual([]);
 		} else {
@@ -586,7 +586,8 @@ test("hiding a pending card stays hidden when the judgment resolves", async () =
 	expect(await settling).toBeUndefined();
 	expect(gate.surfaceText()).toBe("");
 	await gate.setVisibility("collapse");
-	expect(gate.surfaceText()).toContain("Complete · stop · 95.0%");
+	expect(gate.widgetText()).toContain("95.0%");
+	expect(gate.widgetText()).not.toContain("Judging...");
 	expect(gate.calls()).toBe(1);
 });
 
