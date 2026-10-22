@@ -96,7 +96,7 @@ function classifierInput(event: SessionStopEvent): CompletionInput {
 function recordDecision(event: SessionStopEvent, input: CompletionInput, decision: unknown, effect: string, stage: "evidence" | "recap" | "judge", routeReason?: string): void {
 	appendAudit(auditLogPath, {
 		version: 5,
-		plugin: "omp-completion-judge",
+		plugin: "prism-completion",
 		pluginVersion: "0.1.0",
 		decisionContractVersion: COMPLETION_CONTRACT_VERSION,
 		promptVersion: CLASSIFIER_PROMPT_VERSION,

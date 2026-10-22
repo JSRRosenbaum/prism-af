@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Rename the package, GitHub repository, extension module, and new audit-record plugin identity to `prism-completion`. Preserve saved settings, environment variables, audit-log location, judge policy, and presentation behavior; the development install now targets `main` rather than the pre-rename release tag.
+- Verify renamed manifest loading and `plugin: "prism-completion"` audit identity in isolated OMP 18.12.6 full/collapse/hidden CLI runs with synthetic native judgment and blocked network access; all 98 regression tests pass.
 - Simplify retired collapsed cards to one selected result label without probability, route, recap, explanations, or metadata. Preserve the short left-hand rule and full-mode retired probabilities; judge policy and model context are unchanged.
 - Use muted gray for Complete/Stopped, the theme accent (cyan/blue) for Actionable/continuation, amber for review/blocker/approval results, and red for judge failures. Retired collapsed failures/cancellation/supersession show their own result rather than an old selection.
 - Verify single-label retirement, gray Complete, unchanged full/hidden behavior, prompt ordering, and 120→60→160-column resize in an isolated OMP 18.12.6 terminal with synthetic native judgment and blocked network access; resident-session activation still requires a fresh process.

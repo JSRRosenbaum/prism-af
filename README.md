@@ -1,4 +1,4 @@
-# omp-completion-judge
+# prism-completion
 
 Advisory completion judgment for OMP. An ordinary extension factory registers the native `session_stop` hook; it does not add a queue, scheduler, provider transport, or Telegram integration.
 
@@ -11,17 +11,17 @@ This plugin depends on **internal OMP APIs**: `settings` from `@oh-my-pi/pi-codi
 ## Install
 
 ```sh
-omp plugin install github:JSRRosenbaum/omp-completion-judge#v0.1.0
+omp plugin install github:JSRRosenbaum/prism-completion#main
 ```
 
 For local development:
 
 ```sh
-git clone https://github.com/JSRRosenbaum/omp-completion-judge.git
-omp plugin install ./omp-completion-judge
+git clone https://github.com/JSRRosenbaum/prism-completion.git
+omp plugin install ./prism-completion
 ```
 
-Local directory installation is a symlink, not a release snapshot. The `omp.extensions` manifest loads `extensions/completion-judge.ts`; do not also pass that entrypoint with `-e` or retain another completion-gate registration.
+Local directory installation is a symlink, not a release snapshot. The `omp.extensions` manifest loads `extensions/prism-completion.ts`; do not also pass that entrypoint with `-e` or retain another completion-gate registration. The development install tracks `main`; the historical `v0.1.0` tag predates the rename.
 
 Start a fresh OMP process after installation, or use an independently controlled orderly exact-session resume supported by your host. Neither package discovery, `/reload`, nor `ctx.reload()` proves changed extension code is active. Do not terminate a host from its own active turn or simulate supported activation with terminal keystrokes. Preserve the existing native journal when resuming.
 
@@ -32,7 +32,7 @@ disabledExtensions:
   - extension-module:jev-completion-gate
 ```
 
-The package entrypoint has the distinct module ID `extension-module:completion-judge`, so the legacy disable does not suppress the package. Merge any already-disabled modules into the overlay rather than replacing them. Do not install globally alongside an undisabled legacy gate: that would give future sessions two registrations. Session-specific installation/launch must be isolated from unrelated sessions.
+The package entrypoint has the distinct module ID `extension-module:prism-completion`, so the legacy disable does not suppress the package. Merge any already-disabled modules into the overlay rather than replacing them. Do not install globally alongside an undisabled legacy gate: that would give future sessions two registrations. Session-specific installation/launch must be isolated from unrelated sessions.
 
 For a session-only launch without global installation, OMP 18.12.5 also resolves the package manifest through `--extension /absolute/path/to/package-directory`. Combine that with your existing `--resume` and local `--config` overlay after orderly exit. Do **not** substitute `--plugin-dir`: that flag injects Claude/Agent plugin roots and does not load this package's native extension module.
 
@@ -111,6 +111,8 @@ Hidden cards and interrupted pending judgments leave no notice. Visibility comma
 
 `/completion-cards` changes presentation for the current registration and immediately redisplays the latest available result without another judgment. `--save` atomically persists the selected mode as `visibility` in `~/.omp/agent/extensions/completion-judge.json` (or `$PI_CODING_AGENT_DIR/extensions/completion-judge.json`; override the path with `JEV_COMPLETION_GATE_CONFIG`). Unrelated JSON keys are preserved. At startup, a recognized `JEV_COMPLETION_GATE_VISIBILITY=full`, `collapse`, or `hidden` value takes precedence over the file; unset or empty values use the file, then default to `full`. An unrecognized nonempty environment value selects `full`. A settings read error warns and uses full cards; a save error reports failure without disabling judgment. The old `JEV_COMPLETION_GATE_VERBOSE` switch is no longer read. No-UI sessions have no card surface.
 
+The package/repository rename to `prism-completion` does not rename the existing settings file, `JEV_COMPLETION_GATE_*` environment variables, or audit-log path; saved preferences and integrations remain unchanged. Replace the old package installation rather than loading both identities.
+
 Every admitted execution or evidence-review continuation carries a **separate continuation request**, after the compact recap and JSON verdict/control/route evidence. Execution requests explicitly ask for the next authorized action—not another final answer, acknowledgment, or status update. Review requests explicitly ask for one permitted read-only check, not another description of the proposed check. Recap and verdict remain fallible evidence, not authority; a mistaken judgment must not manufacture work or override a human stop. Hidden/collapsed cards do not suppress either part of this model context.
 
 The recap prompt asks for **Delivered / Remaining / Next** in fewer than 80 words. Remaining work is evaluated against the requested outcome, not just the latest finished substep. An optional enhancement or unrequested activation does not become an unfinished assignment after a sufficient informational answer; genuine established interests remain distinct from completed assignments.
@@ -127,7 +129,7 @@ An already-running legacy gate does not gain these controls from a source edit o
 
 Audit records include plugin/version, contract/prompt/policy versions, session/turn identity, input hashes/lengths, decision, stage, and requested effect. Successful evidence text is not logged. Error reasons may contain provider diagnostic details: treat audit files as private. New audit directories/files request `0700`/`0600`; existing permissions are not tightened. Audit I/O is best-effort and never changes delivery behavior: absence is not proof of successful activation or a verdict.
 
-To prove activation, observe a **fresh record for the exact native session**, `plugin: "omp-completion-judge"`, and the installed version. If effect is `continue` or `review`, separately correlate native `session-stop-continuation` history and a subsequent real turn/tool result. A synthetic provider run qualifies mechanics only, not live activation or classifier accuracy.
+To prove activation, observe a **fresh record for the exact native session**, `plugin: "prism-completion"`, and the installed version. If effect is `continue` or `review`, separately correlate native `session-stop-continuation` history and a subsequent real turn/tool result. A synthetic provider run qualifies mechanics only, not live activation or classifier accuracy.
 
 ## Development and release
 

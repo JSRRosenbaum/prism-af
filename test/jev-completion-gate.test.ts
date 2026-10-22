@@ -18,8 +18,8 @@ const settingsPath = join(directory, "settings.json");
 process.env.JEV_COMPLETION_GATE_CONFIG = settingsPath;
 process.env.JEV_COMPLETION_GATE_AUDIT_LOG = audit;
 delete process.env.JEV_COMPLETION_GATE_VISIBILITY;
-// Exercise the normal startup default, without a visibility opt-in.
-const { default: registerGate } = await import("../extensions/completion-judge.ts");
+// Exercise startup defaults; import after setting the environment because module loading captures audit/config paths.
+const { default: registerGate } = await import("../extensions/prism-completion.ts");
 if (previousAudit === undefined) delete process.env.JEV_COMPLETION_GATE_AUDIT_LOG;
 else process.env.JEV_COMPLETION_GATE_AUDIT_LOG = previousAudit;
 afterEach(() => { resetJudgeInternals(); rmSync(settingsPath, { force: true }); });

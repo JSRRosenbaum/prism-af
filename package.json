@@ -1,15 +1,15 @@
 {
-  "name": "omp-completion-judge",
+  "name": "prism-completion",
   "version": "0.1.0",
   "description": "Advisory completion judgment using OMP native recap, judge, and stop-hook continuation",
   "license": "MIT",
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/JSRRosenbaum/omp-completion-judge.git"
+    "url": "git+https://github.com/JSRRosenbaum/prism-completion.git"
   },
   "files": [
-    "extensions/completion-judge.ts",
+    "extensions/prism-completion.ts",
     "lib/jev-completion-contract.ts",
     "lib/jev-completion-view.ts",
     "lib/jev-completion-settings.ts",
@@ -20,7 +20,7 @@
     "LICENSE"
   ],
   "omp": {
-    "extensions": ["./extensions/completion-judge.ts"]
+    "extensions": ["./extensions/prism-completion.ts"]
   },
   "scripts": {
     "test": "bun test"

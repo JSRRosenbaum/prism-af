@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "omp-completion-judge",
+      "name": "prism-completion",
       "devDependencies": {
         "@oh-my-pi/pi-tui": "18.12.5",
       },
