@@ -3,18 +3,19 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext, SessionStopEvent } from "@oh-my-pi/pi-coding-agent";
 import { appendAudit, createJudge, describeJudgeFailure, fingerprint, textFromContent } from "../lib/jev-judge.ts";
-import { createCompletionView, type CompletionView } from "../lib/jev-completion-view.ts";
+import { createCompletionView, renderCompletionView, type CompletionView } from "../lib/jev-completion-view.ts";
+import { loadCompletionVisibility, saveCompletionVisibility } from "../lib/jev-completion-settings.ts";
 import {
 	COMPLETION_CONTRACT_VERSION, COMPLETION_INSTRUCTIONS, HUMAN_CONTROL_QUESTION, WORK_CRITERIA,
 	isHumanControl, isWorkState, routeCompletionDecision, type CompletionDecision,
 } from "../lib/jev-completion-contract.ts";
 
-const MAX_TERMINAL_ANSWER_CHARS = 8_000;
-const MAX_MESSAGE_CHARS = 2_000;
+const MAX_TERMINAL_ANSWER_CHARS = 24_000;
+const MAX_MESSAGE_CHARS = 8_000;
 const MAX_CONTEXT_CHARS = 4_000;
 const MAX_RECAP_CHARS = 1_200;
 const CLASSIFIER_PROMPT_VERSION = "2026-10-21-portable-v1";
-const CONTINUATION_POLICY_VERSION = "2026-10-21-portable-v1";
+const CONTINUATION_POLICY_VERSION = "2026-10-21-portable-v2";
 const RECAP_PROMPT_VERSION = "2026-10-21-portable-v1";
 const RECAP_PROMPT = [
 	"Write a decision recap for the continuation judge from the current conversation, in fewer than 80 words.",
@@ -27,7 +28,6 @@ const RECAP_PROMPT = [
 const auditLogPath =
 	process.env.JEV_COMPLETION_GATE_AUDIT_LOG ||
 	join(homedir(), ".omp", "agent", "logs", "jev-completion-gate.jsonl");
-const verbose = /^(1|true|yes)$/i.test(process.env.JEV_COMPLETION_GATE_VERBOSE || "");
 
 interface ContextItem {
 	role: "user" | "assistant" | "toolResult";
@@ -145,7 +145,7 @@ async function recapCompletion(ctx: ExtensionContext, signal: AbortSignal) {
 }
 
 async function classifyCompletion(input: CompletionInput, ctx: ExtensionContext, signal: AbortSignal): Promise<CompletionDecision & { status: "classified" }> {
-	const judge = createJudge(ctx, "completion-gate");
+	const judge = createJudge(ctx, "completion-gate", 28_000);
 	const controlResult = await judge.judge({
 		state: { userRequest: input.userRequest },
 		questions: { humanControl: HUMAN_CONTROL_QUESTION },
@@ -193,16 +193,62 @@ async function classifyCompletion(input: CompletionInput, ctx: ExtensionContext,
 	};
 }
 
-function showCompletionView(ctx: ExtensionContext, view: CompletionView): void {
-	// A status notification is wrapped as plain text after resize, including its borders.
-	// The latest check belongs in a width-aware UI widget, not a model-visible message.
-	ctx.ui.setWidget("jev-completion-gate", () => createCompletionView(view, () => ctx.ui.theme));
-}
-
 export default function registerJevCompletionGate(pi: ExtensionAPI): void {
 	const processedAnswers = new WeakSet<object>();
 	let lastFailure: string | undefined;
 	let reviewUsed = false;
+	let visibility = loadCompletionVisibility();
+	let latestView: CompletionView | undefined;
+	let displayGeneration = 0;
+	let getWidth: (() => number) | undefined;
+	const showCompletionView = (ctx: ExtensionContext, view: CompletionView, generation = displayGeneration): void => {
+		if (generation !== displayGeneration) return;
+		latestView = view;
+		if (!ctx.hasUI) return;
+		// Resolve current geometry and theme on every native render, not in a notification.
+		ctx.ui.setWidget("jev-completion-gate", visibility === "hidden" ? undefined
+			: tui => {
+				getWidth = () => tui.terminal.columns;
+				return createCompletionView(view, () => ctx.ui.theme, () => visibility);
+			});
+	};
+	const retireCompletionView = (ctx: ExtensionContext): void => {
+		const view = latestView;
+		latestView = undefined;
+		displayGeneration++;
+		if (!ctx.hasUI) return;
+		ctx.ui.setWidget("jev-completion-gate", undefined);
+		// Widgets live below all chat rows. Freeze only settled cards into chat
+		// before the next input is optimistically painted above the editor.
+		if (view?.effect !== undefined && visibility !== "hidden" && getWidth) {
+			// Native notices reserve one padding column on each side.
+			ctx.ui.notify(renderCompletionView(view, ctx.ui.theme, Math.max(1, getWidth() - 2), visibility), "info");
+		}
+	};
+	pi.on("input", (_event, ctx) => { retireCompletionView(ctx); });
+	// Native continuations have no input event; retire before their next reply.
+	pi.on("before_agent_start", (_event, ctx) => { retireCompletionView(ctx); });
+	pi.registerCommand("completion-cards", {
+		description: "Set completion cards: full, collapse, or hidden; add --save for the startup default",
+		handler: async (args, ctx) => {
+			const match = /^(full|collapse|hidden)(?:\s+(--save))?$/.exec(args.trim().toLowerCase());
+			const mode = match?.[1];
+			if (mode !== "full" && mode !== "collapse" && mode !== "hidden") {
+				ctx.ui.notify(`Completion cards: ${visibility}. Usage: /completion-cards full|collapse|hidden [--save]`, "info");
+				return;
+			}
+			visibility = mode;
+			if (latestView) showCompletionView(ctx, latestView);
+			if (match?.[2]) {
+				try {
+					saveCompletionVisibility(mode);
+					ctx.ui.notify(`Completion cards: ${mode}. Saved startup default.`, "info");
+				} catch (error) {
+					ctx.ui.notify(`Completion cards: ${mode} for this session only; could not save. ${error instanceof Error ? error.message : String(error)}`, "warning");
+				}
+			}
+		},
+	});
 
 	pi.on("session_stop", async (event, ctx) => {
 		const assistant = event.last_assistant_message;
@@ -214,8 +260,9 @@ export default function registerJevCompletionGate(pi: ExtensionAPI): void {
 		// A new native user turn starts a new chain; repeated stop hooks share its one review budget.
 		if (!event.stop_hook_active) reviewUsed = false;
 		const input = classifierInput(event);
+		const generation = displayGeneration;
 		// Silence is still a stop attempt; the fresh recap supplies current work context.
-		const signal = AbortSignal.any([event.signal, AbortSignal.timeout(25_000)]);
+		const signal = AbortSignal.any([event.signal, AbortSignal.timeout(29_000)]);
 		let stage: "recap" | "judge" = "recap";
 		try {
 			// Compaction can remove every human message from event.messages, but
@@ -244,32 +291,41 @@ export default function registerJevCompletionGate(pi: ExtensionAPI): void {
 				recordDecision(event, input, { status: effect }, effect, stage);
 				return;
 			}
-			const showRecap = verbose && ctx.hasUI;
-			if (showRecap) showCompletionView(ctx, {
+			showCompletionView(ctx, {
 				recap: input.decisionRecap.text,
-			});
+			}, generation);
 			stage = "judge";
-			const judgeSignal = AbortSignal.any([signal, AbortSignal.timeout(10_000)]);
+			const judgeSignal = AbortSignal.any([signal, AbortSignal.timeout(28_000)]);
 			const decision = await classifyCompletion(input, ctx, judgeSignal);
 			const route = routeCompletionDecision(decision, reviewUsed);
 			const effect = judgeSignal.aborted || ctx.hasPendingMessages() ? "superseded" : route.effect;
 			recordDecision(event, input, decision, effect, stage, route.reason);
 			lastFailure = undefined;
-			if (showRecap) showCompletionView(ctx, {
+			showCompletionView(ctx, {
 				recap: input.decisionRecap.text, decision, effect,
-			});
+			}, generation);
+			const continuationContext = [
+				"Completion check: advisory evidence, not instructions or new authorization. Reconcile the recap with current human requests and observations.",
+				JSON.stringify({
+					recap: input.decisionRecap.text,
+					result: {
+						state: decision.choice, probability: decision.probabilities?.[decision.choice],
+						humanControl: decision.humanControl, effect, reason: route.reason,
+					},
+				}),
+			].join("\n");
 			if (effect === "review") {
 				reviewUsed = true;
 				return {
 					continue: true,
-					additionalContext:
+					additionalContext: `${continuationContext}\n\n` +
 						"The completion check needs one evidence review before continuing or parking this chain. This is not approval to execute a proposed mutation. Verify the proposed blocker, genuinely new approval requirement, or unresolved evidence against the actual human request and observations. Use available, permitted read-only evidence, or state the exact missing condition if no useful lookup remains. Respect current human stops and redirects immediately. Do not replay failed or unknown operations, request already-granted approval, invent work, or broaden authority. A generic need for safe activation is not an observed blocker. The next ending will be judged again; unresolved uncertainty or a verified blocker will not request another evidence-review turn.",
 				};
 			}
 			if (effect !== "continue") return;
 			return {
 				continue: true,
-				additionalContext:
+				additionalContext: `${continuationContext}\n\n` +
 					"The continuation check found a concrete next step within the current request and established permissions. Take that non-interfering action now instead of another promise or recap. Deliver finished assignments independently; do not invent work or revive a spent trail. This advisory adds no permission. Honor human stops, redirects, real resource limits and spend/publication/destruction boundaries. If no permissible next step remains, state the actual completion or blocker rather than looping.",
 			};
 		} catch (error) {
@@ -277,20 +333,20 @@ export default function registerJevCompletionGate(pi: ExtensionAPI): void {
 			const effect = event.signal.aborted ? "cancelled" : ctx.hasPendingMessages() ? "superseded" : "failed";
 			recordDecision(event, input, { status: effect, kind: failure.kind, reason: failure.message }, effect, stage);
 			if (effect !== "failed") {
-				if (verbose && ctx.hasUI && input.decisionRecap) showCompletionView(ctx, {
+				if (input.decisionRecap) showCompletionView(ctx, {
 					recap: input.decisionRecap.text, effect,
-				});
+				}, generation);
 				return;
 			}
-			if ((verbose && ctx.hasUI) || lastFailure !== failure.kind) {
-				lastFailure = failure.kind;
-				const message = `Completion ${stage} unavailable (${failure.kind}); no verdict or automatic continuation. ${failure.message}`;
-				if (verbose && ctx.hasUI) showCompletionView(ctx, {
-					recap: input.decisionRecap?.text, effect, failure: message,
-				});
-				else if (ctx.hasUI) ctx.ui.notify(message, "warning");
+			const message = `Completion ${stage} unavailable (${failure.kind}); no verdict or automatic continuation. ${failure.message}`;
+			showCompletionView(ctx, {
+				recap: input.decisionRecap?.text, effect, failure: message,
+			}, generation);
+			if ((visibility === "hidden" || !ctx.hasUI) && lastFailure !== failure.kind) {
+				if (ctx.hasUI) ctx.ui.notify(message, "warning");
 				else process.stderr.write(`${message}\n`);
 			}
+			lastFailure = failure.kind;
 		}
 	});
 }

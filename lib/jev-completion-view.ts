@@ -1,9 +1,11 @@
 import type { Component } from "@oh-my-pi/pi-tui";
 import { renderOutputBlock } from "@oh-my-pi/pi-tui/render";
+import { truncateToWidth, wrapTextWithAnsi } from "@oh-my-pi/pi-tui/utils";
 import type { Theme, ThemeColor } from "@oh-my-pi/pi-tui/theme";
 import { COMPLETION_STATES, type CompletionDecision } from "./jev-completion-contract.ts";
 
 const choices = Object.entries(COMPLETION_STATES).map(([key, state]) => ({ key, ...state }));
+const workChoices = choices.filter(choice => choice.key !== "stopped");
 const outcomes: Record<string, string> = {
 	continue: "Continuation requested; native limits still apply.",
 	review: "One advisory read-only evidence review requested: verify unclear evidence or blocker/approval claims; no new authority. Native limits still apply.",
@@ -16,6 +18,8 @@ const outcomes: Record<string, string> = {
 	cancelled: "Judgment cancelled; no continuation requested.",
 };
 
+export type CompletionVisibility = "full" | "collapse" | "hidden";
+
 export interface CompletionView {
 	recap?: string;
 	decision?: CompletionDecision;
@@ -24,16 +28,36 @@ export interface CompletionView {
 }
 
 /** UI-only presentation. Selection is the model's choice, never the gate's effect. */
-export function renderCompletionView(view: CompletionView, theme: Theme, width: number): string {
+export function renderCompletionView(view: CompletionView, theme: Theme, width: number, visibility: CompletionVisibility = "full"): string {
+	if (visibility === "hidden" || width < 1) return "";
 	const { decision, effect, failure } = view;
 	const selected = choices.find(choice => choice.key === decision?.choice);
 	const pending = effect === undefined;
 	const admitted = effect === "continue";
 	const color: ThemeColor = pending ? "accent" : admitted ? "success" : effect === "stop" ? "error" : "warning";
+	if (visibility === "collapse") {
+		const probability = selected && decision?.probabilities?.[selected.key];
+		const score = typeof probability === "number" && Number.isFinite(probability) && probability >= 0 && probability <= 1
+			? ` · ${(probability * 100).toFixed(1)}%` : "";
+		const result = pending ? "Judging..." : effect === "stop" ? "stop" : effect === "continue" ? "continuation requested" : effect;
+		const label = pending ? result! : `${selected?.label ?? "No verdict"} · ${result}${score}`;
+		const rule = theme.fg(color, theme.symbol("tree.horizontal").repeat(width));
+		const recap = wrapTextWithAnsi(view.recap?.replace(/\s+/g, " ").trim() || "Recap unavailable.", width);
+		const preview = recap.slice(0, 2).map(line => truncateToWidth(line, width));
+		if (recap.length > 2) preview[1] = `${truncateToWidth(recap[1]!, width - 1, "")}…`;
+		return [
+			rule,
+			theme.bold(theme.fg(color, truncateToWidth(label, width))),
+			...preview.map(line => theme.fg("muted", line)),
+			rule,
+		].join("\n");
+	}
 	const outcome = failure ?? (pending ? "Judging..." : effect === "stop"
 		? decision?.choice === "stopped" ? "Human stop respected; no continuation requested." : "Work complete; no continuation requested."
 		: outcomes[effect] ?? "No continuation requested.");
-	const rows = choices.map(choice => {
+	const rows = decision?.choice === "stopped"
+		? [theme.fg("muted", "Work state not evaluated: human stop.")]
+		: workChoices.map(choice => {
 		const active = selected === choice;
 		const probability = decision?.probabilities?.[choice.key];
 		const score = Number.isFinite(probability) && probability! >= 0 && probability! <= 1
@@ -64,9 +88,12 @@ export function renderCompletionView(view: CompletionView, theme: Theme, width: 
 }
 
 /** Resolve current geometry and theme on every native render, including theme swaps. */
-export function createCompletionView(view: CompletionView, getTheme: () => Theme): Component {
+export function createCompletionView(view: CompletionView, getTheme: () => Theme, visibility: CompletionVisibility | (() => CompletionVisibility) = "full"): Component {
 	return {
-		render: width => renderCompletionView(view, getTheme(), width).split("\n"),
+		render: width => {
+			const rendered = renderCompletionView(view, getTheme(), width, typeof visibility === "function" ? visibility() : visibility);
+			return rendered ? rendered.split("\n") : [];
+		},
 		invalidate() {},
 	};
 }

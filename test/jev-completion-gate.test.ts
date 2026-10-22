@@ -12,17 +12,24 @@ import { loadJudgeInternals, resetJudgeInternals } from "../lib/jev-judge.ts";
 const directory = mkdtempSync(join(tmpdir(), "completion-gate-"));
 const audit = join(directory, "decisions.jsonl");
 const previousAudit = process.env.JEV_COMPLETION_GATE_AUDIT_LOG;
-const previousVerbose = process.env.JEV_COMPLETION_GATE_VERBOSE;
+const previousVisibility = process.env.JEV_COMPLETION_GATE_VISIBILITY;
+const previousConfig = process.env.JEV_COMPLETION_GATE_CONFIG;
+const settingsPath = join(directory, "settings.json");
+process.env.JEV_COMPLETION_GATE_CONFIG = settingsPath;
 process.env.JEV_COMPLETION_GATE_AUDIT_LOG = audit;
-process.env.JEV_COMPLETION_GATE_VERBOSE = "1";
-// The gate captures audit/verbose settings at module load, so this test must import after setting them.
+delete process.env.JEV_COMPLETION_GATE_VISIBILITY;
+// Exercise the normal startup default, without a visibility opt-in.
 const { default: registerGate } = await import("../extensions/completion-judge.ts");
 if (previousAudit === undefined) delete process.env.JEV_COMPLETION_GATE_AUDIT_LOG;
 else process.env.JEV_COMPLETION_GATE_AUDIT_LOG = previousAudit;
-if (previousVerbose === undefined) delete process.env.JEV_COMPLETION_GATE_VERBOSE;
-else process.env.JEV_COMPLETION_GATE_VERBOSE = previousVerbose;
-afterEach(() => resetJudgeInternals());
-afterAll(() => rmSync(directory, { recursive: true, force: true }));
+afterEach(() => { resetJudgeInternals(); rmSync(settingsPath, { force: true }); });
+afterAll(() => {
+	rmSync(directory, { recursive: true, force: true });
+	if (previousVisibility === undefined) delete process.env.JEV_COMPLETION_GATE_VISIBILITY;
+	else process.env.JEV_COMPLETION_GATE_VISIBILITY = previousVisibility;
+	if (previousConfig === undefined) delete process.env.JEV_COMPLETION_GATE_CONFIG;
+	else process.env.JEV_COMPLETION_GATE_CONFIG = previousConfig;
+});
 
 function turn(request = "Implement the fix and verify it.", answer = "I will edit the failing handler next.") {
 	const controller = new AbortController();
@@ -82,10 +89,8 @@ async function fixture(
 	const inputs: JudgeInput[] = [];
 	const recapRequests: RecapOptions[] = [];
 	const handlers: Record<string, Function> = {};
-	await loadJudgeInternals(async () => ({
-		settings: { getModelRole: () => "synthetic-native/finite", overlay: () => ({}) },
-		journalJudgmentUsage: () => undefined,
-		resolveJudge: () => ({
+	const commands: Record<string, { handler: Function }> = {};
+	const synthetic = {
 			primaryModel: () => ({ provider: "synthetic-native", id: model, api: "typesafe" }),
 			judge: async (request: { state: JudgeInput; questions: Record<string, unknown> }) => {
 				if (request.questions.humanControl) {
@@ -99,9 +104,17 @@ async function fixture(
 				timeline.push("judge");
 				return { model, answers: { continuation: await classify(request.state) } };
 			},
-		}),
+	};
+	await loadJudgeInternals(async () => ({
+		settings: { getModelRole: () => "synthetic-native/finite", overlay: () => ({}) },
+		journalJudgmentUsage: () => undefined,
+		resolveJudge: () => synthetic,
+		judgeWithTimeout: async ({ request }: { request: Parameters<typeof synthetic.judge>[0] }) => synthetic.judge(request),
 	}));
-	registerGate({ on: (name: string, handler: Function) => { handlers[name] = handler; } } as never);
+	registerGate({
+		on: (name: string, handler: Function) => { handlers[name] = handler; },
+		registerCommand: (name: string, command: { handler: Function }) => { commands[name] = command; },
+	} as never);
 	const recap = options.recap === undefined ? async () => defaultRecap : options.recap;
 	const context = {
 		modelRegistry: {}, hasPendingMessages: () => pending, hasUI: true,
@@ -129,9 +142,9 @@ async function fixture(
 				notifications.push({ text, level });
 				timeline.push(text);
 			},
-			setWidget: (_key: string, factory: (_tui: unknown, theme: Theme) => Component) => {
-				widget = factory(undefined, context.ui.theme);
-				const text = stripVTControlCharacters(widget.render(100).join("\n"));
+			setWidget: (_key: string, factory: ((_tui: unknown, theme: Theme) => Component) | undefined) => {
+				widget = factory?.({ terminal: { columns: 100 } }, context.ui.theme);
+				const text = stripVTControlCharacters(widget?.render(100).join("\n") ?? "");
 				notices.push(text);
 				timeline.push(text);
 			},
@@ -139,6 +152,14 @@ async function fixture(
 	};
 	return {
 		settle: (event: unknown) => handlers.session_stop(event, context),
+		setVisibility: (mode: string) => commands["completion-cards"]!.handler(mode, context),
+		submit: async (text: string) => {
+			await handlers.input?.({ type: "input", text, source: "interactive" }, context);
+			timeline.push(`USER: ${text}`);
+			await handlers.before_agent_start?.({ type: "before_agent_start" }, context);
+			timeline.push("ASSISTANT: next reply");
+		},
+		widgetText: () => stripVTControlCharacters(widget?.render(100).join("\n") ?? ""),
 		setPending: (value: boolean) => { pending = value; },
 		calls: () => calls, notices, notifications, inputs, recapRequests, timeline,
 		controlCalls: () => controlCalls,
@@ -160,6 +181,30 @@ test("duplicate delivery of a settled answer does not classify or resume it twic
 	expect(gate.calls()).toBe(1);
 	expect(gate.recapRequests).toHaveLength(1);
 });
+for (const visibility of ["full", "collapse", "hidden"] as const) {
+	for (const state of ["actionable", "blocked", "insufficient_evidence"] as const) {
+		test(`${visibility} cards deliver the current recap and ${state} result to the continuing model`, async () => {
+			const recap = 'The handler is edited. Verify the "native import" next.\nDo not publish.';
+			const gate = await fixture(async () => ({ choice: state, probabilities: { [state]: 0.9 } }),
+				undefined, { recap: async () => recap });
+			await gate.setVisibility(visibility);
+			const result = await gate.settle(turn().event);
+			expect(result.continue).toBe(true);
+			const context = JSON.parse(result.additionalContext.split("\n")[1]);
+			expect(context).toEqual({
+				recap,
+				result: {
+					state, probability: 0.9,
+					humanControl: { choice: "proceed", probabilities: { proceed: 0.9, stop: 0.05, uncertain: 0.05 } },
+					effect: state === "actionable" ? "continue" : "review",
+					reason: state === "insufficient_evidence" ? "insufficient-evidence" : state,
+				},
+			});
+			expect(result.additionalContext).toContain("not instructions or new authorization");
+		});
+	}
+}
+
 
 test("a silent settled ending can continue unfinished work after a fresh recap", async () => {
 	const gate = await fixture();
@@ -414,9 +459,9 @@ test("repeated provider failures replace pending UI without inventing a selected
 
 test("oversized evidence is rejected intact rather than silently discarding the user's constraints", async () => {
 	const gate = await fixture();
-	expect(await gate.settle(turn("x".repeat(2_001)).event)).toBeUndefined();
+	expect(await gate.settle(turn("x".repeat(64 * 1024)).event)).toBeUndefined();
 	expect(gate.calls()).toBe(0);
-	expect(lastAudit().input.userRequest.length).toBe(2_001);
+	expect(lastAudit().input.userRequest.length).toBe(64 * 1024);
 });
 
 test("aborted answers and pending input do not start classification", async () => {
@@ -478,6 +523,81 @@ test("the completed UI replaces pending state while retaining the recap before t
 	expect(rendered).toContain("The requested fix is still unfinished.");
 	expect(rendered).toMatch(/Actionable\s+90\.0%\s+SELECTED/);
 	expect(rendered.indexOf("The requested fix")).toBeLessThan(rendered.indexOf("SELECTED"));
+});
+
+test("card modes change the latest verdict without rejudging or suppressing continuation", async () => {
+	const gate = await fixture();
+	await gate.setVisibility("hidden");
+	expect(await gate.settle(turn().event)).toMatchObject({ continue: true });
+	expect(gate.surfaceText()).toBe("");
+	expect(gate.calls()).toBe(1);
+	await gate.setVisibility("collapse");
+	await gate.setVisibility("full");
+	expect(gate.surfaceText().replace(/[│\s]+/g, " ")).toContain(defaultRecap);
+	expect(gate.surfaceText()).toMatch(/Actionable\s+90\.0%\s+SELECTED/);
+	await gate.setVisibility("hidden");
+	expect(gate.surfaceText()).toBe("");
+	expect(gate.calls()).toBe(1);
+	expect(gate.controlCalls()).toBe(1);
+});
+
+for (const mode of ["full", "collapse", "hidden"]) {
+	test(`${mode} cards stay before the next human prompt, not below it`, async () => {
+		const gate = await fixture(async () => ({ choice: "complete", probabilities: { complete: 0.9 } }));
+		await gate.setVisibility(mode);
+		await gate.settle(turn().event);
+		await gate.submit("Now inspect the other handler.");
+		expect(gate.widgetText()).toBe("");
+		const archived = gate.notifications.filter(notice => notice.text.replace(/[│\s]+/g, " ").includes(defaultRecap));
+		if (mode === "hidden") {
+			expect(archived).toEqual([]);
+		} else {
+			expect(archived).toHaveLength(1);
+			const cardIndex = gate.timeline.indexOf(archived[0]!.text);
+			expect(cardIndex).toBeLessThan(gate.timeline.indexOf("USER: Now inspect the other handler."));
+		}
+		await gate.setVisibility("full");
+		expect(gate.widgetText()).toBe("");
+		expect(gate.calls()).toBe(1);
+	});
+}
+
+test("a verdict arriving after a new prompt cannot restore the old card", async () => {
+	const began = deferred<void>();
+	const release = deferred<unknown>();
+	const gate = await fixture(async () => { began.resolve(undefined); return release.promise; });
+	const settling = gate.settle(turn().event);
+	await began.promise;
+	await gate.submit("Stop that work; inspect this instead.");
+	gate.setPending(true);
+	release.resolve({ choice: "complete", probabilities: { complete: 0.95 } });
+	expect(await settling).toBeUndefined();
+	expect(gate.widgetText()).toBe("");
+	expect(gate.notifications).toEqual([]);
+});
+
+test("hiding a pending card stays hidden when the judgment resolves", async () => {
+	const began = deferred<void>();
+	const release = deferred<unknown>();
+	const gate = await fixture(async () => { began.resolve(undefined); return release.promise; });
+	const settling = gate.settle(turn().event);
+	await began.promise;
+	await gate.setVisibility("hidden");
+	release.resolve({ choice: "complete", probabilities: { complete: 0.95 } });
+	expect(await settling).toBeUndefined();
+	expect(gate.surfaceText()).toBe("");
+	await gate.setVisibility("collapse");
+	expect(gate.surfaceText()).toContain("Complete · stop · 95.0%");
+	expect(gate.calls()).toBe(1);
+});
+
+test("saving collapsed mode applies to a fresh registration without another opt-in", async () => {
+	const gate = await fixture();
+	await gate.setVisibility("collapse --save");
+	resetJudgeInternals();
+	const resumed = await fixture();
+	expect(await resumed.settle(turn().event)).toMatchObject({ continue: true });
+	expect(gate.calls()).toBe(0);
 });
 
 for (const interruption of ["abort", "pending input"] as const) {
@@ -635,11 +755,11 @@ test("switching branches reads only the new current branch and never reuses a ca
 });
 
 test("oversized recovered human evidence is rejected intact before recap or judge", async () => {
-	const gate = await fixture(undefined, undefined, { branch: () => [branchRequest("x".repeat(2_001))] });
+	const gate = await fixture(undefined, undefined, { branch: () => [branchRequest("x".repeat(64 * 1024))] });
 	expect(await gate.settle(compactedTurn())).toBeUndefined();
 	expect(gate.calls()).toBe(0);
 	expect(gate.recapRequests).toHaveLength(0);
-	expect(lastAudit()).toMatchObject({ effect: "failed", input: { userRequest: { length: 2_001 } } });
+	expect(lastAudit()).toMatchObject({ effect: "failed", input: { userRequest: { length: 64 * 1024 } } });
 });
 
 test("native branch lookup failure is observable and cannot fall back to summaries or another branch", async () => {

@@ -87,6 +87,7 @@ interface JudgeInternals {
 	settings: unknown;
 	resolveJudge(deps: Record<string, unknown>): Judge;
 	journalJudgmentUsage(manager: unknown): unknown;
+	judgeWithTimeout?(input: Record<string, unknown>): Promise<JudgeResult>;
 }
 export interface JudgeContext {
 	modelRegistry: unknown;
@@ -143,7 +144,7 @@ function hasUsageLedger(manager: Record<string, unknown> | undefined): boolean {
 }
 
 /** A judge bound to one session; the first call surfaces JudgeUnavailableError if OMP internals moved. */
-export function createJudge(ctx: JudgeContext, purpose: string): Judge {
+export function createJudge(ctx: JudgeContext, purpose: string, timeoutMs?: number): Judge {
 	return {
 		async judge(request, options) {
 			const omp = await loadJudgeInternals();
@@ -170,6 +171,13 @@ export function createJudge(ctx: JudgeContext, purpose: string): Judge {
 			const model = judge.primaryModel?.();
 			if (!model || `${model.provider}/${model.id}` !== requiredModel || model.api !== "typesafe") {
 				throw new JudgeUnavailableError(`Completion judge requires configured native typesafe model ${requiredModel}; no fallback was attempted`);
+			}
+			if (timeoutMs !== undefined) {
+				if (!omp.judgeWithTimeout) throw new JudgeUnavailableError("OMP native timed-judge client unavailable");
+				return omp.judgeWithTimeout({
+					model, registry: ctx.modelRegistry, sessionId: getSessionId?.call(manager),
+					purpose, request, signal: options?.signal, timeoutMs, onUsage,
+				});
 			}
 			return judge.judge(request, options);
 		},

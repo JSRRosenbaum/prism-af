@@ -6,7 +6,7 @@ Advisory completion judgment for OMP. An ordinary extension factory registers th
 
 Targets **OMP 18.12.5** only. Other versions are unverified. The manifest pins host peer versions; optional peers are supplied by the running compiled OMP host, not installed as a second runtime. Bun is needed for development tests, not an additional plugin service.
 
-This plugin depends on **internal OMP APIs**: `settings` from `@oh-my-pi/pi-coding-agent`, and `resolveJudge` / `journalJudgmentUsage` from `@oh-my-pi/pi-coding-agent/judgment`. Those imports are isolated in `lib/omp-judgment-host.ts`. An incompatible upgrade causes explicit abstention, not a replacement verdict. The UI uses OMP's native TUI render API.
+This plugin depends on **internal OMP APIs**: `settings` from `@oh-my-pi/pi-coding-agent`, and `resolveJudge` / `journalJudgmentUsage` from `@oh-my-pi/pi-coding-agent/judgment`. `lib/omp-judgment-host.ts` also uses OMP's native `NativeJudge` client and catalog cost calculation so completion calls can use an explicit HTTP deadline rather than the role chain's fixed ten-second attempt. Model selection still comes from the configured judge role; credentials and headers still come from OMP's registry, usage is journaled, and there is no substitute model or custom HTTP transport. An incompatible upgrade causes explicit abstention, not a replacement verdict. The UI uses OMP's native TUI render API.
 
 ## Install
 
@@ -23,7 +23,7 @@ omp plugin install ./omp-completion-judge
 
 Local directory installation is a symlink, not a release snapshot. The `omp.extensions` manifest loads `extensions/completion-judge.ts`; do not also pass that entrypoint with `-e` or retain another completion-gate registration.
 
-Start a fresh OMP process after installation, or use an independently controlled orderly exact-session resume supported by your host. Neither package discovery, `/reload-plugins`, nor `ctx.reload()` proves changed extension code is active. Do not terminate a host from its own active turn or simulate supported activation with terminal keystrokes. Preserve the existing native journal when resuming.
+Start a fresh OMP process after installation, or use an independently controlled orderly exact-session resume supported by your host. Neither package discovery, `/reload`, nor `ctx.reload()` proves changed extension code is active. Do not terminate a host from its own active turn or simulate supported activation with terminal keystrokes. Preserve the existing native journal when resuming.
 
 When migrating from a loose `jev-completion-gate.ts`, disable only that legacy module in the new process's config overlay, leaving unrelated global registrations untouched:
 
@@ -65,25 +65,53 @@ At an eligible settled assistant ending:
 
 A selected human stop never requests review or continuation. Pending input, cancellation, error/aborted answers, and duplicate delivery suppress stale work. Review asks for permitted read-only evidence; it is not a sandbox or approval grant. No judge output is authoritative task acceptance or execution permission.
 
+Human control answers “did the human tell us to stop this turn?”, not “does the next step need permission?”. The detailed card therefore lists only the five work outcomes, not a redundant Human stop radio option. A human stop shows its separate control score and explicitly marks work classification as not evaluated. `blocked` remains an external dependency/resource wait; `approval_required` remains a genuinely new human decision/permission requirement. Neither is a duplicate of the stop/proceed qualifier, and neither grants authority.
+
 **Requested continuation is not observed resumption.** OMP owns native scheduling and its continuation cap (eight automatic resumptions in the targeted host). A ninth ending may still be judged without another scheduled turn. Verify a native continuation entry and subsequent actual assistant/tool events before claiming resumption.
 
 ### Bounds and failure
 
 | Evidence | Accepted bound |
 | --- | --- |
-| Current human request | 2,000 characters; rejected intact if oversized |
-| Terminal answer | 8,000 characters; rejected intact if oversized |
+| Current human request | 8,000 characters; rejected intact if oversized |
+| Terminal answer | 24,000 characters; rejected intact if oversized |
 | Recent text context | 4,000 characters, at most two messages per role |
 | Fresh recap | 1–1,200 characters; no truncation or substitute |
 | Recap deadline | 15 seconds |
-| Two classifier calls combined | 10 seconds |
-| Entire gate | 25 seconds |
+| Two classifier calls combined | 28 seconds, additionally bounded by the whole gate |
+| Entire gate | 29 seconds, below OMP 18.12.5's fixed 30-second extension-handler cap |
 
 Recent context prioritizes complete human constraints, then tool observations, then assistant claims. Oversized context items are omitted whole with omitted-character metadata. Backend failure never fabricates a decision or silently falls back. A sufficiently long original human request can intentionally prevent judgment; compaction does not relax the bound.
 
+Character budgets are not token guarantees; token, queue and compute limits belong to the configured backend. A longer server budget does not extend OMP's fixed 30-second stop-hook cap. This plugin requests a 28-second native HTTP attempt and retains its 29-second whole-hook cancellation; a sufficiently large/queued request may still abstain. Other OMP native-judge consumers keep their host-default timeout. The plugin does not patch global timeouts, bypass handler budgets, truncate evidence, or restart foreground sessions.
+
 ## Observe activation
 
-Default audit: `~/.omp/agent/logs/jev-completion-gate.jsonl`. Override with `JEV_COMPLETION_GATE_AUDIT_LOG`; enable the native two-card widget with `JEV_COMPLETION_GATE_VERBOSE=1` **before process startup**. No telemetry is sent by the plugin itself; native judge calls use the selected provider and OMP usage ledger.
+Default audit: `~/.omp/agent/logs/jev-completion-gate.jsonl`. Override with `JEV_COMPLETION_GATE_AUDIT_LOG`. No telemetry is sent by the plugin itself; native judge calls use the selected provider and OMP usage ledger.
+
+### Card visibility
+
+Cards are **full and visible by default** in the native terminal UI. Change presentation during a session:
+
+| Command | Presentation |
+| --- | --- |
+| `/completion-cards full` | Recap and detailed decision cards (default). |
+| `/completion-cards collapse [--save]` | Compact notice with full-width rules above and below, a colored outcome/routing/percentage header, and a muted recap preview of at most two lines. Green requests continuation, red stops, amber reviews/waits/fails; pending judgment uses the theme accent. `--save` also persists this as the startup default. |
+| `/completion-cards hidden` | No cards; judging, auditing, and continuation behavior remain enabled. Deduplicated failure warnings remain visible. |
+
+Changing modes immediately redisplays the latest idle result without another judgment. Pending or unavailable verdicts never invent a percentage. Compact notices reflow to the current terminal width and use the theme's native line glyph. Overflowing recap previews end in an ellipsis; only the visible preview is shortened, never the source recap or model continuation context. Full mode retains the detailed cards.
+
+Before the next submitted input or native continuation, the editor widget is cleared. A visible settled card becomes a terminal scrollback snapshot above the next prompt/reply; hidden cards and interrupted pending judgments leave no snapshot. Visibility commands affect only the current idle card, not retired snapshots, and a late judgment cannot restore an old card under a new prompt. Snapshots are UI notices, not persisted conversation messages or additional model context; structured/native clients may present these notices as transient toasts rather than ANSI scrollback.
+
+`/completion-cards` changes presentation for the current registration and immediately redisplays the latest available result without another judgment. `--save` atomically persists the selected mode as `visibility` in `~/.omp/agent/extensions/completion-judge.json` (or `$PI_CODING_AGENT_DIR/extensions/completion-judge.json`; override the path with `JEV_COMPLETION_GATE_CONFIG`). Unrelated JSON keys are preserved. At startup, a recognized `JEV_COMPLETION_GATE_VISIBILITY=full`, `collapse`, or `hidden` value takes precedence over the file; unset or empty values use the file, then default to `full`. An unrecognized nonempty environment value selects `full`. A settings read error warns and uses full cards; a save error reports failure without disabling judgment. The old `JEV_COMPLETION_GATE_VERBOSE` switch is no longer read. No-UI sessions have no card surface.
+
+The compact recap, JSON verdict, human-control result, and route/effect are also supplied to model continuation as advisory context, independently of card visibility; hiding or collapsing the UI does not change judgment or continuation behavior. This context grants no authority and is not an acceptance signal.
+
+On OMP 18.12.5, an isolated synthetic-provider run captured the actual second native OpenAI model request with the continuation recap, JSON verdict, human-control result, and route/effect while cards were hidden. The fixture returned a synthetic response; this qualifies context delivery mechanics, not model accuracy or activation in the user's running session. A separate fresh native UI smoke verified full/collapse/hidden toggling and that `collapse --save` is restored after restart; its verdict was explicitly synthetic.
+
+Compact-notice rendering was additionally exercised in an isolated fresh OMP 18.12.5 terminal with synthetic continue/review/stop examples: full-width rules enclosed a colored header and a two-line recap preview. Boundary tests cover widths 1–321, Unicode/ASCII/Nerd symbols, wide text, and reversible preview truncation on resize. This does not activate changed renderer code in an existing process.
+
+An already-running legacy gate does not gain these controls from a source edit or `/reload`. Changed extension code must be loaded through a fresh process or the orderly exact-session resume procedure above; do not claim activation until a fresh audit record confirms it for that session. Updating the user's saved default does not activate a currently running session.
 
 Audit records include plugin/version, contract/prompt/policy versions, session/turn identity, input hashes/lengths, decision, stage, and requested effect. Successful evidence text is not logged. Error reasons may contain provider diagnostic details: treat audit files as private. New audit directories/files request `0700`/`0600`; existing permissions are not tightened. Audit I/O is best-effort and never changes delivery behavior: absence is not proof of successful activation or a verdict.
 
@@ -97,9 +125,9 @@ bun test
 npm pack --ignore-scripts --dry-run
 ```
 
-The release allowlist contains the entrypoint, four library modules, package manifest, README, changelog, and MIT license. Source tests are in GitHub but excluded from the installed package. No installation lifecycle scripts run. Do not add private sessions, receipts, audit logs, credentials, or local policy to the repository.
+The release allowlist contains ten files: the entrypoint, five library modules, package manifest, README, changelog, and MIT license. Source tests are in GitHub but excluded from the installed package. No installation lifecycle scripts run. Do not add private sessions, receipts, audit logs, credentials, or local policy to the repository.
 
-Derived from a maintained native completion-gate implementation: decision contract v2, prompt v9, continuation policy v18, recap v2. Portable prompt/recap/policy revisions are identified separately as `2026-10-21-portable-v1`; the decision contract remains `2026-10-20-v2`. Implementation and extraction were AI-assisted; finite mechanics tests do not establish broad semantic accuracy.
+Derived from a maintained native completion-gate implementation: decision contract v2, prompt v9, continuation policy v18, recap v2. Portable prompt/recap revisions are `2026-10-21-portable-v1`; continuation policy is `2026-10-21-portable-v2`, which adds advisory recap/result context without changing routing. The decision contract remains `2026-10-20-v2`. Implementation and extraction were AI-assisted; finite mechanics tests do not establish broad semantic accuracy.
 
 ### Release qualification
 

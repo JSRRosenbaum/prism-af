@@ -12,6 +12,7 @@
     "extensions/completion-judge.ts",
     "lib/jev-completion-contract.ts",
     "lib/jev-completion-view.ts",
+    "lib/jev-completion-settings.ts",
     "lib/jev-judge.ts",
     "lib/omp-judgment-host.ts",
     "README.md",
