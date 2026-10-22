@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { stripVTControlCharacters } from "node:util";
 import { loadThemeSync } from "@oh-my-pi/pi-tui/theme/loader";
 import { visibleWidth } from "@oh-my-pi/pi-tui/utils";
-import { createCompletionView, renderCompletionView } from "../lib/jev-completion-view.ts";
+import { createCompletionView, formatRetiredCompletionView, renderCompletionView } from "../lib/jev-completion-view.ts";
 import { COMPLETION_STATES, type WorkState } from "../lib/jev-completion-contract.ts";
 
 const theme = loadThemeSync("dark", { mode: "truecolor", symbolPresetOverride: "unicode" });
@@ -49,6 +49,19 @@ test("pending and failed judgments never fabricate a selected option or probabil
 	}
 });
 
+test("collapsed failure diagnostics take precedence over missing or stale recaps and reflow intact", () => {
+	const failure = "Human request length 13358 exceeds the 8000-character limit; evidence was not truncated.";
+	for (const recap of [undefined, "An earlier recap must not hide this failure."]) {
+		const card = createCompletionView({ recap, effect: "failed", failure }, () => theme, "collapse");
+		for (const row of card.render(24)) expect(visibleWidth(row)).toBeLessThanOrEqual(24);
+		const wide = stripVTControlCharacters(card.render(140).join("\n"));
+		expect(wide).toContain(failure);
+		expect(wide).not.toContain("Recap unavailable.");
+		expect(wide).not.toContain("An earlier recap");
+		expect(wide).not.toContain("%");
+	}
+});
+
 test("native frames fit narrow terminals with wide text and ASCII or Nerd Font markers", () => {
 	for (const preset of ["unicode", "ascii", "nerd"] as const) {
 		const selectedTheme = loadThemeSync("dark", { symbolPresetOverride: preset });
@@ -87,11 +100,11 @@ test("the same component reflows its recap and preserves both frames after narro
 test("an existing card follows theme and symbol changes without another judgment", () => {
 	let current = loadThemeSync("dark", { mode: "truecolor", symbolPresetOverride: "unicode" });
 	const view = createCompletionView({ decision: { choice: "complete" }, effect: "stop" }, () => current);
-	expect(view.render(80).join("\n")).toContain(current.fg("error", `${current.symbol("radio.selected")} Complete  SELECTED`));
+	expect(view.render(80).join("\n")).toContain(current.fg("muted", `${current.symbol("radio.selected")} Complete  SELECTED`));
 	current = loadThemeSync("light", { mode: "truecolor", symbolPresetOverride: "ascii" });
 	view.invalidate();
 	const rendered = view.render(80).join("\n");
-	expect(rendered).toContain(current.fg("error", `${current.symbol("radio.selected")} Complete  SELECTED`));
+	expect(rendered).toContain(current.fg("muted", `${current.symbol("radio.selected")} Complete  SELECTED`));
 	expect(stripVTControlCharacters(rendered)).not.toContain("◉");
 });
 
@@ -107,24 +120,32 @@ test("evidence review is distinct from ordinary continuation and preserves the j
 		expect(plain).toContain(`${COMPLETION_STATES[choice].label}  80.0%  SELECTED`);
 		expect(plain.match(/SELECTED/g)).toHaveLength(1);
 		expect(review).toContain(theme.fg("warning", "Result"));
-		expect(continuation).toContain(theme.fg("success", "Result"));
+		expect(continuation).toContain(theme.fg("accent", "Result"));
 		expect(plain).not.toBe(stripVTControlCharacters(continuation));
 	}
 });
 
 
-test("blocked, approval, uncertainty, low probability and failure remain amber, not completed", () => {
+test("blocked, approval, uncertainty and low probability remain amber, not completed", () => {
 	for (const [choice, effect] of [
 		["blocked", "blocked"],
 		["approval_required", "approval-required"],
 		["insufficient_evidence", "uncertain"],
 		["actionable", "low-probability"],
-		["actionable", "failed"],
 	] as const) {
 		const rendered = renderCompletionView({ decision: { choice }, effect }, theme, 120);
 		expect(rendered).toContain(theme.fg("warning", "Result"));
 		expect(stripVTControlCharacters(rendered)).toContain(`${COMPLETION_STATES[choice].label}  SELECTED`);
 		expect(stripVTControlCharacters(rendered)).not.toContain("Complete  SELECTED");
+	}
+});
+
+test("judge failure is red while completed and stopped results are muted", () => {
+	expect(renderCompletionView({ effect: "failed", failure: "Provider unavailable." }, theme, 120))
+		.toContain(theme.fg("error", "Result"));
+	for (const choice of ["complete", "stopped"] as const) {
+		expect(renderCompletionView({ decision: { choice }, effect: "stop" }, theme, 120))
+			.toContain(theme.fg("muted", "Result"));
 	}
 });
 
@@ -260,4 +281,65 @@ test("compact recap truncation is two-line, reversible on resize, and leaves the
 	expect(wide[1]).toBe(recap);
 	expect(data.recap).toBe(recap);
 	expect(card.render(24).map(stripVTControlCharacters)).toEqual(narrow);
+});
+
+test("retired full cards retain their selected probability while collapsed cards omit it", () => {
+	const view = {
+		recap: "RECAP_MUST_STAY_LIVE_ONLY",
+		decision: { choice: "approval_required" as const, model: "MODEL_MUST_STAY_LIVE_ONLY",
+			probabilities: { approval_required: 0.544, complete: 0.456 },
+			humanControl: { choice: "uncertain" as const, probabilities: { uncertain: 0.84 } } },
+		effect: "review",
+	};
+	for (const mode of ["full", "collapse"] as const) {
+		const text = stripVTControlCharacters(formatRetiredCompletionView(view, theme, mode));
+		expect(text).toContain(COMPLETION_STATES.approval_required.label);
+		if (mode === "full") expect(text).toContain("54.4%");
+		else expect(text).not.toMatch(/%|review|54\.4/);
+		expect(text).not.toContain("\n");
+		expect(text).not.toContain(view.recap);
+		expect(text).not.toContain(view.decision.model);
+		expect(text).not.toContain("Human control");
+		expect(text).not.toContain("SELECTED");
+		expect(text).toStartWith(`${theme.symbol("tree.horizontal").repeat(3)} `);
+		expect(text).not.toEndWith(theme.symbol("tree.horizontal"));
+	}
+});
+
+test("retired failures stay result-only without inventing a verdict or percentage", () => {
+	const view = { recap: "OLD_RECAP", effect: "failed", failure: "FAILURE_DETAIL_STAYS_LIVE_ONLY" };
+	for (const mode of ["full", "collapse"] as const) {
+		const text = stripVTControlCharacters(formatRetiredCompletionView(view, theme, mode));
+		if (mode === "collapse") expect(text).toBe(`${theme.symbol("tree.horizontal").repeat(3)} Judge failed`);
+		else expect(text).toContain("No verdict · failed");
+		expect(text).not.toContain("\n");
+		expect(text).not.toContain(view.recap);
+		expect(text).not.toContain(view.failure);
+		expect(text).not.toContain("%");
+	}
+	expect(formatRetiredCompletionView(view, theme, "hidden")).toBe("");
+	expect(formatRetiredCompletionView({ recap: "Not yet judged." }, theme, "collapse")).toBe("");
+});
+
+test("retired collapsed cards show one selected result with its semantic color, not routing or evidence", () => {
+	for (const [choice, effect, label, color] of [
+		["complete", "uncertain", "Complete", "muted"],
+		["stopped", "stop", "Stopped", "muted"],
+		["actionable", "continue", "Actionable", "accent"],
+		["blocked", "review", "Blocked", "warning"],
+		["approval_required", "review", "Approval required", "warning"],
+		["insufficient_evidence", "uncertain", "Evidence unclear", "warning"],
+	] as const) {
+		const view = {
+			recap: "PRIVATE_RECAP", failure: "PRIVATE_DIAGNOSTIC", effect,
+			decision: { choice, probabilities: { [choice]: 0.965 }, model: "PRIVATE_MODEL" },
+		};
+		const rendered = formatRetiredCompletionView(view, theme, "collapse");
+		expect(stripVTControlCharacters(rendered)).toBe(`${theme.symbol("tree.horizontal").repeat(3)} ${label}`);
+		expect(rendered).toContain(theme.fg(color, label));
+	}
+	for (const effect of ["cancelled", "superseded"] as const) {
+		const rendered = formatRetiredCompletionView({ effect, decision: { choice: "complete" } }, theme, "collapse");
+		expect(stripVTControlCharacters(rendered)).not.toContain("Complete");
+	}
 });

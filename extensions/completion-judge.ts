@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext, SessionStopEvent } from "@oh-my-pi/pi-coding-agent";
 import { appendAudit, createJudge, describeJudgeFailure, fingerprint, textFromContent } from "../lib/jev-judge.ts";
-import { createCompletionView, renderCompletionView, type CompletionView } from "../lib/jev-completion-view.ts";
+import { createCompletionView, formatRetiredCompletionView, type CompletionView } from "../lib/jev-completion-view.ts";
 import { loadCompletionVisibility, saveCompletionVisibility } from "../lib/jev-completion-settings.ts";
 import {
 	COMPLETION_CONTRACT_VERSION, COMPLETION_INSTRUCTIONS, HUMAN_CONTROL_QUESTION, WORK_CRITERIA,
@@ -93,7 +93,7 @@ function classifierInput(event: SessionStopEvent): CompletionInput {
 	};
 }
 
-function recordDecision(event: SessionStopEvent, input: CompletionInput, decision: unknown, effect: string, stage: "recap" | "judge", routeReason?: string): void {
+function recordDecision(event: SessionStopEvent, input: CompletionInput, decision: unknown, effect: string, stage: "evidence" | "recap" | "judge", routeReason?: string): void {
 	appendAudit(auditLogPath, {
 		version: 5,
 		plugin: "omp-completion-judge",
@@ -202,17 +202,13 @@ export default function registerJevCompletionGate(pi: ExtensionAPI): void {
 	let visibility = loadCompletionVisibility();
 	let latestView: CompletionView | undefined;
 	let displayGeneration = 0;
-	let getWidth: (() => number) | undefined;
 	const showCompletionView = (ctx: ExtensionContext, view: CompletionView, generation = displayGeneration): void => {
 		if (generation !== displayGeneration) return;
 		latestView = view;
 		if (!ctx.hasUI) return;
 		// Resolve current geometry and theme on every native render, not in a notification.
 		ctx.ui.setWidget("jev-completion-gate", visibility === "hidden" ? undefined
-			: tui => {
-				getWidth = () => tui.terminal.columns;
-				return createCompletionView(view, () => ctx.ui.theme, () => visibility);
-			});
+			: () => createCompletionView(view, () => ctx.ui.theme, () => visibility));
 	};
 	const retireCompletionView = (ctx: ExtensionContext): void => {
 		const view = latestView;
@@ -220,11 +216,10 @@ export default function registerJevCompletionGate(pi: ExtensionAPI): void {
 		displayGeneration++;
 		if (!ctx.hasUI) return;
 		ctx.ui.setWidget("jev-completion-gate", undefined);
-		// Widgets live below all chat rows. Freeze only settled cards into chat
-		// before the next input is optimistically painted above the editor.
-		if (view?.effect !== undefined && visibility !== "hidden" && getWidth) {
-			// Native notices reserve one padding column on each side.
-			ctx.ui.notify(renderCompletionView(view, ctx.ui.theme, Math.max(1, getWidth() - 2), visibility), "info");
+		// Retire before optimistic input painting, without freezing terminal geometry.
+		// Native notices receive logical text and own wrapping at their current width.
+		if (view?.effect !== undefined && visibility !== "hidden") {
+			ctx.ui.notify(formatRetiredCompletionView(view, ctx.ui.theme, visibility), "info");
 		}
 	};
 	pi.on("input", (_event, ctx) => { retireCompletionView(ctx); });
@@ -265,7 +260,7 @@ export default function registerJevCompletionGate(pi: ExtensionAPI): void {
 		const generation = displayGeneration;
 		// Silence is still a stop attempt; the fresh recap supplies current work context.
 		const signal = AbortSignal.any([event.signal, AbortSignal.timeout(29_000)]);
-		let stage: "recap" | "judge" = "recap";
+		let stage: "evidence" | "recap" | "judge" = "evidence";
 		try {
 			// Compaction can remove every human message from event.messages, but
 			// getBranch() retains original entries on the current native leaf path.
@@ -284,9 +279,13 @@ export default function registerJevCompletionGate(pi: ExtensionAPI): void {
 			if (!input.userRequest) {
 				throw new Error("No human-origin request evidence is available on the current native branch; no completion verdict was requested");
 			}
-			if (input.userRequest.length > MAX_MESSAGE_CHARS || input.terminalAnswer.length > MAX_TERMINAL_ANSWER_CHARS) {
-				throw new Error("Completion evidence exceeds the local judge's input bound; no evidence was truncated");
+			if (input.userRequest.length > MAX_MESSAGE_CHARS) {
+				throw new Error(`Human request length ${input.userRequest.length} exceeds the ${MAX_MESSAGE_CHARS}-character limit; evidence was not truncated.`);
 			}
+			if (input.terminalAnswer.length > MAX_TERMINAL_ANSWER_CHARS) {
+				throw new Error(`Terminal answer length ${input.terminalAnswer.length} exceeds the ${MAX_TERMINAL_ANSWER_CHARS}-character limit; evidence was not truncated.`);
+			}
+			stage = "recap";
 			input.decisionRecap = await recapCompletion(ctx, AbortSignal.any([signal, AbortSignal.timeout(15_000)]));
 			if (signal.aborted || ctx.hasPendingMessages()) {
 				const effect = event.signal.aborted ? "cancelled" : "superseded";
@@ -342,7 +341,7 @@ export default function registerJevCompletionGate(pi: ExtensionAPI): void {
 				}, generation);
 				return;
 			}
-			const message = `Completion ${stage} unavailable (${failure.kind}); no verdict or automatic continuation. ${failure.message}`;
+			const message = `${failure.message} Completion ${stage} unavailable (${failure.kind}); no verdict or automatic continuation.`;
 			showCompletionView(ctx, {
 				recap: input.decisionRecap?.text, effect, failure: message,
 			}, generation);

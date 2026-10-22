@@ -456,11 +456,29 @@ test("repeated provider failures replace pending UI without inventing a selected
 	}
 });
 
-test("oversized evidence is rejected intact rather than silently discarding the user's constraints", async () => {
+test("oversized human evidence exposes its actual size and limit in collapsed UI without inference", async () => {
 	const gate = await fixture();
-	expect(await gate.settle(turn("x".repeat(64 * 1024)).event)).toBeUndefined();
+	await gate.setVisibility("collapse");
+	expect(await gate.settle(turn("x".repeat(13_358)).event)).toBeUndefined();
 	expect(gate.calls()).toBe(0);
-	expect(lastAudit().input.userRequest.length).toBe(64 * 1024);
+	expect(gate.controlCalls()).toBe(0);
+	expect(gate.recapRequests).toHaveLength(0);
+	expect(lastAudit()).toMatchObject({ stage: "evidence", effect: "failed", input: { userRequest: { length: 13_358 } } });
+	expect(gate.surfaceText()).toContain("13358");
+	expect(gate.surfaceText()).toContain("8000");
+	expect(gate.surfaceText()).not.toContain("Recap unavailable.");
+});
+
+test("oversized terminal evidence names the answer bound without invoking recap or judge", async () => {
+	const gate = await fixture();
+	await gate.setVisibility("collapse");
+	expect(await gate.settle(turn("Verify the delivered work.", "x".repeat(24_001)).event)).toBeUndefined();
+	expect(gate.calls()).toBe(0);
+	expect(gate.controlCalls()).toBe(0);
+	expect(gate.recapRequests).toHaveLength(0);
+	expect(lastAudit()).toMatchObject({ stage: "evidence", effect: "failed", input: { terminalAnswer: { length: 24_001 } } });
+	expect(gate.surfaceText()).toContain("24001");
+	expect(gate.surfaceText()).toContain("24000");
 });
 
 test("aborted answers and pending input do not start classification", async () => {
@@ -552,6 +570,9 @@ for (const mode of ["full", "collapse", "hidden"]) {
 			expect(archived).toEqual([]);
 		} else {
 			expect(archived).toHaveLength(1);
+			expect(archived[0]!.text).not.toMatch(/─{4,}|[│┌┐└┘]/u);
+			expect(archived[0]!.text).not.toContain("\n");
+			expect(archived[0]!.text).not.toContain(defaultRecap);
 			const cardIndex = gate.timeline.indexOf(archived[0]!.text);
 			expect(cardIndex).toBeLessThan(gate.timeline.indexOf("USER: Now inspect the other handler."));
 		}
@@ -560,6 +581,7 @@ for (const mode of ["full", "collapse", "hidden"]) {
 		expect(gate.calls()).toBe(1);
 	});
 }
+
 
 test("a verdict arriving after a new prompt cannot restore the old card", async () => {
 	const began = deferred<void>();

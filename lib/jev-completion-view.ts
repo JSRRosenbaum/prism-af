@@ -27,23 +27,67 @@ export interface CompletionView {
 	failure?: string;
 }
 
+function completionLabel(view: CompletionView): string {
+	const selected = choices.find(choice => choice.key === view.decision?.choice);
+	const probability = selected && view.decision?.probabilities?.[selected.key];
+	const score = typeof probability === "number" && Number.isFinite(probability) && probability >= 0 && probability <= 1
+		? ` · ${(probability * 100).toFixed(1)}%` : "";
+	if (view.effect === undefined) return "Judging...";
+	if (view.effect === "stop") return `${selected?.label ?? "No verdict"}${score}`;
+	return `${selected?.label ?? "No verdict"} · ${view.effect === "continue" ? "continuation requested" : view.effect}${score}`;
+}
+
+function completionColor(view: CompletionView): ThemeColor {
+	if (view.effect === undefined || view.effect === "continue") return "accent";
+	if (view.effect === "failed") return "error";
+	if (view.effect === "stop" || view.effect === "cancelled" || view.effect === "superseded") return "muted";
+	return "warning";
+}
+
+function retiredResult(view: CompletionView): { label: string; color: ThemeColor } {
+	if (view.effect === "failed") return { label: "Judge failed", color: "error" };
+	if (view.effect === "cancelled") return { label: "Cancelled", color: "muted" };
+	if (view.effect === "superseded") return { label: "Superseded", color: "muted" };
+	const selected = choices.find(choice => choice.key === view.decision?.choice);
+	return selected ?? { label: "No verdict", color: "warning" };
+}
+
+function completionOutcome(view: CompletionView): string {
+	return view.failure ?? (view.effect === undefined ? "Judging..." : view.effect === "stop"
+		? view.decision?.choice === "stopped" ? "Human stop respected; no continuation requested." : "Work complete; no continuation requested."
+		: outcomes[view.effect] ?? "No continuation requested.");
+}
+
+function completionDecisionLines(view: CompletionView, theme: Theme): string[] {
+	const { decision } = view;
+	const rows = decision?.choice === "stopped"
+		? [theme.fg("muted", "Work state not evaluated: human stop.")]
+		: workChoices.map(choice => {
+			const active = choice.key === decision?.choice;
+			const probability = decision?.probabilities?.[choice.key];
+			const score = Number.isFinite(probability) && probability! >= 0 && probability! <= 1
+				? `  ${(probability! * 100).toFixed(1)}%` : "";
+			const label = `${theme.symbol(active ? "radio.selected" : "radio.unselected")} ${choice.label}${score}${active ? "  SELECTED" : ""}`;
+			return active ? theme.bg("selectedBg", theme.bold(theme.fg(choice.color, label))) : theme.fg("muted", label);
+		});
+	const control = decision?.humanControl;
+	const controlProbability = control?.probabilities?.[control.choice];
+	const controlScore = Number.isFinite(controlProbability) && controlProbability! >= 0 && controlProbability! <= 1
+		? `  ${(controlProbability! * 100).toFixed(1)}%` : "";
+	return [
+		...(control ? [theme.fg("muted", `Human control (separate): ${control.choice}${controlScore}`)] : []),
+		theme.fg("text", "Completion state (read-only)"),
+		...rows,
+	];
+}
+
 /** UI-only presentation. Selection is the model's choice, never the gate's effect. */
 export function renderCompletionView(view: CompletionView, theme: Theme, width: number, visibility: CompletionVisibility = "full"): string {
 	if (visibility === "hidden" || width < 1) return "";
 	const { decision, effect, failure } = view;
-	const selected = choices.find(choice => choice.key === decision?.choice);
-	const pending = effect === undefined;
-	const admitted = effect === "continue";
-	const color: ThemeColor = pending ? "accent" : admitted ? "success" : effect === "stop" ? "error" : "warning";
+	const color = completionColor(view);
 	if (visibility === "collapse") {
-		const probability = selected && decision?.probabilities?.[selected.key];
-		const score = typeof probability === "number" && Number.isFinite(probability) && probability >= 0 && probability <= 1
-			? ` · ${(probability * 100).toFixed(1)}%` : "";
-		const result = pending ? "Judging..." : effect === "continue" ? "continuation requested" : effect;
-		const label = pending ? result! : effect === "stop"
-			? `${selected?.label ?? "No verdict"}${score}`
-			: `${selected?.label ?? "No verdict"} · ${result}${score}`;
-		const title = truncateToWidth(label, width >= 5 ? width - 4 : width);
+		const title = truncateToWidth(completionLabel(view), width >= 5 ? width - 4 : width);
 		const horizontal = theme.symbol("tree.horizontal");
 		const ruleWidth = Math.max(0, width - visibleWidth(title) - 2);
 		const leftWidth = Math.floor(ruleWidth / 2);
@@ -52,34 +96,16 @@ export function renderCompletionView(view: CompletionView, theme: Theme, width: 
 			: theme.fg(color, `${horizontal.repeat(leftWidth)} `) + titleLine
 				+ theme.fg(color, ` ${horizontal.repeat(ruleWidth - leftWidth)}`);
 		if (effect === "stop") return header;
-		const recap = wrapTextWithAnsi(view.recap?.replace(/\s+/g, " ").trim() || "Recap unavailable.", width);
-		const preview = recap.slice(0, 2).map(line => truncateToWidth(line, width));
-		if (recap.length > 2) preview[1] = `${truncateToWidth(recap[1]!, width - 1, "")}…`;
+		const body = wrapTextWithAnsi((failure ?? view.recap)?.replace(/\s+/g, " ").trim() || "Recap unavailable.", width);
+		const preview = body.slice(0, 2).map(line => truncateToWidth(line, width));
+		if (body.length > 2) preview[1] = `${truncateToWidth(body[1]!, width - 1, "")}…`;
 		return [
 			header,
-			...preview.map(line => theme.fg("muted", line)),
+			...preview.map(line => theme.fg(failure ? color : "muted", line)),
 			theme.fg(color, horizontal.repeat(width)),
 		].join("\n");
 	}
-	const outcome = failure ?? (pending ? "Judging..." : effect === "stop"
-		? decision?.choice === "stopped" ? "Human stop respected; no continuation requested." : "Work complete; no continuation requested."
-		: outcomes[effect] ?? "No continuation requested.");
-	const rows = decision?.choice === "stopped"
-		? [theme.fg("muted", "Work state not evaluated: human stop.")]
-		: workChoices.map(choice => {
-		const active = selected === choice;
-		const probability = decision?.probabilities?.[choice.key];
-		const score = Number.isFinite(probability) && probability! >= 0 && probability! <= 1
-			? `  ${(probability! * 100).toFixed(1)}%` : "";
-		const label = `${theme.symbol(active ? "radio.selected" : "radio.unselected")} ${choice.label}${score}${active ? "  SELECTED" : ""}`;
-		return active ? theme.bg("selectedBg", theme.bold(theme.fg(choice.color, label))) : theme.fg("muted", label);
-	});
-	const control = decision?.humanControl;
-	const controlProbability = control?.probabilities?.[control.choice];
-	const controlScore = Number.isFinite(controlProbability) && controlProbability! >= 0 && controlProbability! <= 1
-		? `  ${(controlProbability! * 100).toFixed(1)}%` : "";
-	const controlLines = control
-		? [theme.fg("muted", `Human control (separate): ${control.choice}${controlScore}`)] : [];
+	const outcome = completionOutcome(view);
 	const recap = renderOutputBlock({
 		header: theme.bold(theme.fg("accent", "Completion recap")), width, applyBg: false,
 		sections: [{ lines: [theme.fg("text", view.recap?.replace(/\s+/g, " ") ?? "Recap unavailable.")] }],
@@ -89,11 +115,19 @@ export function renderCompletionView(view: CompletionView, theme: Theme, width: 
 		headerMeta: decision?.model ? theme.fg("muted", decision.model) : undefined,
 		width, applyBg: false, borderColor: color,
 		sections: [
-			{ lines: [...controlLines, theme.fg("text", "Completion state (read-only)"), ...rows] },
+			{ lines: completionDecisionLines(view, theme) },
 			{ label: theme.fg(color, "Result"), lines: [theme.fg(color, outcome)] },
 		],
 	}, theme);
 	return [...recap, ...judge].join("\n");
+}
+
+/** Width-independent, result-only retirement; live cards retain their recap and details. */
+export function formatRetiredCompletionView(view: CompletionView, theme: Theme, visibility: CompletionVisibility): string {
+	if (visibility === "hidden" || view.effect === undefined) return "";
+	const result = visibility === "collapse" ? retiredResult(view) : { label: completionLabel(view), color: completionColor(view) };
+	return theme.fg(result.color, `${theme.symbol("tree.horizontal").repeat(3)} `)
+		+ theme.bold(theme.fg(result.color, result.label));
 }
 
 /** Resolve current geometry and theme on every native render, including theme swaps. */

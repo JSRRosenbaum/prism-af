@@ -2,9 +2,16 @@
 
 ## Unreleased
 
+- Simplify retired collapsed cards to one selected result label without probability, route, recap, explanations, or metadata. Preserve the short left-hand rule and full-mode retired probabilities; judge policy and model context are unchanged.
+- Use muted gray for Complete/Stopped, the theme accent (cyan/blue) for Actionable/continuation, amber for review/blocker/approval results, and red for judge failures. Retired collapsed failures/cancellation/supersession show their own result rather than an old selection.
+- Verify single-label retirement, gray Complete, unchanged full/hidden behavior, prompt ordering, and 120→60→160-column resize in an isolated OMP 18.12.6 terminal with synthetic native judgment and blocked network access; resident-session activation still requires a fresh process.
+- Retire every visible live card as a result-only notice with a short left-hand rule ending at the result, no right/bottom rule, and no frozen terminal padding. Omit recap, failure-detail, model, and decision-detail blocks after retirement in both full and collapsed modes. Prompt ordering, model context, and OMP core are unchanged.
+- Verify retirement before native continuation and new input in full/collapse/hidden modes at 120→60→160 columns using the installed OMP 18.12.6 CLI, synthetic native judgment responses, and network isolation; retain PTY replay images. This is not live-session activation or a real-model judgment claim.
+- Show the actual failure diagnostic in collapsed cards instead of “Recap unavailable” or a stale recap, preserving the compact two-line preview and resize reflow.
+- Distinguish evidence-validation failures from recap failures in audit records; report the request/answer character count and limit without changing evidence bounds, truncating inputs, retrying, or requesting continuation.
 - Show full recap and decision cards by default in the native terminal UI.
 - Add `full`, `collapse`, and `hidden` presentation modes; `/completion-cards` changes the latest display without rejudging, and `--save` persists a startup default.
-- In collapse mode, place the outcome/routing/probability inside a full-width native-theme header rule. Stop results occupy one line with no recap or bottom rule; other results keep a muted recap preview capped at two lines and a bottom rule. Red/amber/green semantics, resize reflow, and full mode are unchanged; model context is unchanged.
+- In collapse mode, place the outcome/routing/probability inside a full-width native-theme live header rule. Stop results occupy one line with no recap or bottom rule; other results keep a muted recap preview capped at two lines and a bottom rule. Resize reflow, full-mode layout, and model context are unchanged.
 - Retire the editor-bound card before the next input or native continuation, preserving visible settled cards as terminal scrollback notices instead of leaving the previous verdict below a new prompt. Hidden/pending cards leave no snapshot; late judgments cannot restore a retired card.
 - Verify full/collapse/hidden prompt ordering in fresh isolated OMP 18.12.6 ANSI terminals with synthetic recap/judge results; this is not live-session activation or structured-client transcript persistence.
 - Verify the shorter collapsed stop/continuation/review layouts and 120→60-column resize in a fresh isolated OMP 18.12.6 ANSI terminal with synthetic verdicts; full-mode stop details remain available.

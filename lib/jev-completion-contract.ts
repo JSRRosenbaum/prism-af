@@ -2,11 +2,11 @@
 export const COMPLETION_CONTRACT_VERSION = "2026-10-20-v2";
 
 export const COMPLETION_STATES = {
-	actionable: { label: "Actionable", color: "success", criterion: "CONTINUE: A concrete next step can be taken now within existing permission, for unfinished work or a genuine live interest. An available authorized inspection is a next step. A promise is not delivery." },
-	complete: { label: "Complete", color: "error", criterion: "FINISHED: The requested outcome is delivered, and no live commitment or genuine interest has a next step. Do not invent work after a sufficient informational answer." },
+	actionable: { label: "Actionable", color: "accent", criterion: "CONTINUE: A concrete next step can be taken now within existing permission, for unfinished work or a genuine live interest. An available authorized inspection is a next step. A promise is not delivery." },
+	complete: { label: "Complete", color: "muted", criterion: "FINISHED: The requested outcome is delivered, and no live commitment or genuine interest has a next step. Do not invent work after a sufficient informational answer." },
 	blocked: { label: "Blocked", color: "warning", criterion: "WAIT: Useful work remains, but an observed external dependency or resource conflict prevents every useful permitted step. No useful safe inspection remains." },
 	approval_required: { label: "Approval required", color: "warning", criterion: "ASK: The only useful next step requires a genuinely new human decision or permission. Permission already given in userRequest is not missing approval." },
-	stopped: { label: "Human stop", color: "error" },
+	stopped: { label: "Stopped", color: "muted" },
 	insufficient_evidence: { label: "Evidence unclear", color: "warning", criterion: "REVIEW: Evidence is missing or contradictory, so it is not possible to establish the next step or any other state. Do not guess that work is finished or blocked." },
 } as const;
 export type CompletionState = keyof typeof COMPLETION_STATES;
