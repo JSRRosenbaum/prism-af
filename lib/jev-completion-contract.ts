@@ -37,7 +37,7 @@ export interface CompletionDecision {
 export type CompletionEffect = "continue" | "review" | "stop" | "blocked" | "approval-required" | "uncertain" | "low-probability";
 export interface CompletionRoute {
 	effect: CompletionEffect;
-	reason: "actionable" | "complete" | "blocked" | "approval-required" | "human-stop" | "human-control-uncertain" | "insufficient-evidence" | "low-probability" | "invalid-probability";
+	reason: "actionable" | "complete" | "complete-uncertain" | "blocked" | "approval-required" | "human-stop" | "human-control-uncertain" | "insufficient-evidence" | "low-probability" | "invalid-probability";
 }
 
 export function isWorkState(value: unknown): value is WorkState {
@@ -47,6 +47,12 @@ export function isHumanControl(value: unknown): value is HumanControlDecision["c
 	return value === "stop" || value === "proceed" || value === "uncertain";
 }
 
+/**
+ * A `complete` verdict below this probability is not accepted as a finished turn.
+ * Bare-majority completions were parking turns whose remaining verification had not run.
+ */
+export const COMPLETE_CONFIDENCE = 0.9;
+
 /** One review per native chain verifies ambiguity and proposed parking conditions, without adding execution authority. */
 export function routeCompletionDecision(decision: CompletionDecision, reviewUsed: boolean): CompletionRoute {
 	const probability = decision.probabilities?.[decision.choice];
@@ -54,8 +60,18 @@ export function routeCompletionDecision(decision: CompletionDecision, reviewUsed
 		return { effect: "low-probability", reason: "invalid-probability" };
 	}
 	if (decision.humanControl?.choice === "stop") return { effect: "stop", reason: "human-stop" };
-	if (decision.humanControl?.choice !== "proceed") {
+	const confidentComplete = decision.choice === "complete" && probability! >= COMPLETE_CONFIDENCE;
+	// A bare acknowledgement ("ok, thanks") reads as uncertain human control; that must not veto a confident completion.
+	if (!confidentComplete && decision.humanControl?.choice !== "proceed") {
 		return { effect: reviewUsed ? "uncertain" : "review", reason: "human-control-uncertain" };
+	}
+	if (decision.choice === "complete" && probability! <= 0.5) {
+		return { effect: reviewUsed ? "low-probability" : "review", reason: "low-probability" };
+	}
+	if (decision.choice === "complete") {
+		return confidentComplete
+			? { effect: "stop", reason: "complete" }
+			: { effect: reviewUsed ? "uncertain" : "review", reason: "complete-uncertain" };
 	}
 	if (probability! <= 0.5 || decision.choice === "insufficient_evidence") {
 		const reason = probability! <= 0.5 ? "low-probability" : "insufficient-evidence";
@@ -63,7 +79,6 @@ export function routeCompletionDecision(decision: CompletionDecision, reviewUsed
 	}
 	switch (decision.choice) {
 		case "actionable": return { effect: "continue", reason: "actionable" };
-		case "complete": return { effect: "stop", reason: "complete" };
 		case "blocked": return { effect: reviewUsed ? "blocked" : "review", reason: "blocked" };
 		case "approval_required": return { effect: reviewUsed ? "approval-required" : "review", reason: "approval-required" };
 		case "stopped": return { effect: reviewUsed ? "uncertain" : "review", reason: "human-control-uncertain" };

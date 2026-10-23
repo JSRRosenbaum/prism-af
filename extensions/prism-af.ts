@@ -46,6 +46,16 @@ interface CompletionInput {
 	decisionRecap?: { text: string; model: string };
 }
 
+interface RecapRequestTelemetry {
+	at: string;
+	model?: string;
+	payloadBytes: number;
+	inputItems?: number;
+	toolDefinitions?: number;
+	maxOutputTokens?: number;
+	previousResponseReferenced: boolean;
+}
+
 function classifierInput(event: SessionStopEvent): CompletionInput {
 	let userIndex = -1;
 	for (let index = event.messages.length - 1; index >= 0; index--) {
@@ -93,10 +103,10 @@ function classifierInput(event: SessionStopEvent): CompletionInput {
 	};
 }
 
-function recordDecision(event: SessionStopEvent, input: CompletionInput, decision: unknown, effect: string, stage: "evidence" | "recap" | "judge", routeReason?: string): void {
+function recordDecision(event: SessionStopEvent, input: CompletionInput, decision: unknown, effect: string, stage: "evidence" | "recap" | "judge", routeReason?: string, recapRequests?: RecapRequestTelemetry[]): void {
 	appendAudit(auditLogPath, {
 		version: 5,
-		plugin: "prism-completion",
+		plugin: "prism-af",
 		pluginVersion: "0.1.0",
 		decisionContractVersion: COMPLETION_CONTRACT_VERSION,
 		promptVersion: CLASSIFIER_PROMPT_VERSION,
@@ -122,6 +132,7 @@ function recordDecision(event: SessionStopEvent, input: CompletionInput, decisio
 				omitted: input.recentContext.filter(item => item.omittedChars !== undefined).length,
 			},
 		},
+		...(recapRequests?.length ? { recapRequests } : {}),
 		decision,
 		stage,
 		effect,
@@ -202,6 +213,32 @@ export default function registerJevCompletionGate(pi: ExtensionAPI): void {
 	let visibility = loadCompletionVisibility();
 	let latestView: CompletionView | undefined;
 	let displayGeneration = 0;
+	let activeRecapRequests: RecapRequestTelemetry[] | undefined;
+	const recapPromptJson = JSON.stringify(RECAP_PROMPT).slice(1, -1);
+	pi.on("before_provider_request", event => {
+		if (!activeRecapRequests) return;
+		// Observe only this recap, not concurrent native title/job/other side turns.
+		// Persist counts only: never payload text, images, credentials, or response IDs.
+		try {
+			const serialized = JSON.stringify(event.payload);
+			if (!serialized?.includes(recapPromptJson)) return;
+			const payload = event.payload as Record<string, unknown> | null;
+			if (!payload || typeof payload !== "object") return;
+			const items = payload.input ?? payload.messages;
+			const outputCap = payload.max_output_tokens ?? payload.max_completion_tokens ?? payload.max_tokens;
+			activeRecapRequests.push({
+				at: new Date().toISOString(),
+				...(typeof payload.model === "string" ? { model: payload.model } : {}),
+				payloadBytes: Buffer.byteLength(serialized, "utf8"),
+				...(Array.isArray(items) ? { inputItems: items.length } : {}),
+				...(Array.isArray(payload.tools) ? { toolDefinitions: payload.tools.length } : {}),
+				...(typeof outputCap === "number" && Number.isFinite(outputCap) ? { maxOutputTokens: outputCap } : {}),
+				previousResponseReferenced: typeof payload.previous_response_id === "string" && payload.previous_response_id.length > 0,
+			});
+		} catch {
+			// Best-effort telemetry cannot change provider payloads or completion behavior.
+		}
+	});
 	const showCompletionView = (ctx: ExtensionContext, view: CompletionView, generation = displayGeneration): void => {
 		if (generation !== displayGeneration) return;
 		latestView = view;
@@ -225,27 +262,30 @@ export default function registerJevCompletionGate(pi: ExtensionAPI): void {
 	pi.on("input", (_event, ctx) => { retireCompletionView(ctx); });
 	// Native continuations have no input event; retire before their next reply.
 	pi.on("before_agent_start", (_event, ctx) => { retireCompletionView(ctx); });
-	pi.registerCommand("completion-cards", {
-		description: "Set completion cards: full, collapse, or hidden; add --save for the startup default",
-		handler: async (args, ctx) => {
-			const match = /^(full|collapse|hidden)(?:\s+(--save))?$/.exec(args.trim().toLowerCase());
-			const mode = match?.[1];
-			if (mode !== "full" && mode !== "collapse" && mode !== "hidden") {
-				ctx.ui.notify(`Completion cards: ${visibility}. Usage: /completion-cards full|collapse|hidden [--save]`, "info");
-				return;
+	const setCards = async (args: string, ctx: ExtensionContext, command: string): Promise<void> => {
+		const match = /^(full|collapse|hidden)(?:\s+(--save))?$/.exec(args.trim().toLowerCase());
+		const mode = match?.[1];
+		if (mode !== "full" && mode !== "collapse" && mode !== "hidden") {
+			ctx.ui.notify(`Completion cards: ${visibility}. Usage: /${command} full|collapse|hidden [--save]`, "info");
+			return;
+		}
+		visibility = mode;
+		if (latestView) showCompletionView(ctx, latestView);
+		if (match?.[2]) {
+			try {
+				saveCompletionVisibility(mode);
+				ctx.ui.notify(`Completion cards: ${mode}. Saved startup default.`, "info");
+			} catch (error) {
+				ctx.ui.notify(`Completion cards: ${mode} for this session only; could not save. ${error instanceof Error ? error.message : String(error)}`, "warning");
 			}
-			visibility = mode;
-			if (latestView) showCompletionView(ctx, latestView);
-			if (match?.[2]) {
-				try {
-					saveCompletionVisibility(mode);
-					ctx.ui.notify(`Completion cards: ${mode}. Saved startup default.`, "info");
-				} catch (error) {
-					ctx.ui.notify(`Completion cards: ${mode} for this session only; could not save. ${error instanceof Error ? error.message : String(error)}`, "warning");
-				}
-			}
-		},
-	});
+		}
+	};
+	for (const command of ["prism-af", "completion-cards"]) {
+		pi.registerCommand(command, {
+			description: "Set completion cards: full, collapse, or hidden; add --save for the startup default",
+			handler: (args: string, ctx: ExtensionContext) => setCards(args, ctx, command),
+		});
+	}
 
 	pi.on("session_stop", async (event, ctx) => {
 		const assistant = event.last_assistant_message;
@@ -258,6 +298,7 @@ export default function registerJevCompletionGate(pi: ExtensionAPI): void {
 		if (!event.stop_hook_active) reviewUsed = false;
 		const input = classifierInput(event);
 		const generation = displayGeneration;
+		const recapRequests: RecapRequestTelemetry[] = [];
 		// Silence is still a stop attempt; the fresh recap supplies current work context.
 		const signal = AbortSignal.any([event.signal, AbortSignal.timeout(29_000)]);
 		let stage: "evidence" | "recap" | "judge" = "evidence";
@@ -286,10 +327,15 @@ export default function registerJevCompletionGate(pi: ExtensionAPI): void {
 				throw new Error(`Terminal answer length ${input.terminalAnswer.length} exceeds the ${MAX_TERMINAL_ANSWER_CHARS}-character limit; evidence was not truncated.`);
 			}
 			stage = "recap";
-			input.decisionRecap = await recapCompletion(ctx, AbortSignal.any([signal, AbortSignal.timeout(15_000)]));
+			activeRecapRequests = recapRequests;
+			try {
+				input.decisionRecap = await recapCompletion(ctx, AbortSignal.any([signal, AbortSignal.timeout(15_000)]));
+			} finally {
+				if (activeRecapRequests === recapRequests) activeRecapRequests = undefined;
+			}
 			if (signal.aborted || ctx.hasPendingMessages()) {
 				const effect = event.signal.aborted ? "cancelled" : "superseded";
-				recordDecision(event, input, { status: effect }, effect, stage);
+				recordDecision(event, input, { status: effect }, effect, stage, undefined, recapRequests);
 				return;
 			}
 			showCompletionView(ctx, {
@@ -300,7 +346,7 @@ export default function registerJevCompletionGate(pi: ExtensionAPI): void {
 			const decision = await classifyCompletion(input, ctx, judgeSignal);
 			const route = routeCompletionDecision(decision, reviewUsed);
 			const effect = judgeSignal.aborted || ctx.hasPendingMessages() ? "superseded" : route.effect;
-			recordDecision(event, input, decision, effect, stage, route.reason);
+			recordDecision(event, input, decision, effect, stage, route.reason, recapRequests);
 			lastFailure = undefined;
 			showCompletionView(ctx, {
 				recap: input.decisionRecap.text, decision, effect,
@@ -334,16 +380,38 @@ export default function registerJevCompletionGate(pi: ExtensionAPI): void {
 		} catch (error) {
 			const failure = describeJudgeFailure(error);
 			const effect = event.signal.aborted ? "cancelled" : ctx.hasPendingMessages() ? "superseded" : "failed";
-			recordDecision(event, input, { status: effect, kind: failure.kind, reason: failure.message }, effect, stage);
+			const subject = stage === "recap" ? "Recap" : stage === "judge" ? "Judge" : "Evidence";
+			const failureTitle = `${subject} ${failure.kind === "context" ? "context exceeded"
+				: failure.kind === "timeout" ? "timed out" : failure.kind === "unavailable" ? "unavailable"
+				: failure.kind === "quota" ? "rate limited" : failure.kind === "auth" ? "authentication failed"
+				: failure.kind === "billing" ? "billing failed" : "failed"}`;
+			// Session usage is an estimate, not the rejected side request's exact token count.
+			const usage = stage === "recap" && failure.kind === "context" ? ctx.getContextUsage?.() : undefined;
+			const context = stage === "recap" && failure.kind === "context" ? {
+				model: ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined,
+				sessionTokensEstimate: Number.isFinite(usage?.tokens) ? usage!.tokens : undefined,
+				configuredWindowTokens: usage?.contextWindow ?? ctx.model?.contextWindow,
+				exactRequestTokens: null, exactOverflowTokens: null,
+			} : undefined;
+			recordDecision(event, input, {
+				status: effect, kind: failure.kind, reason: failure.message,
+				...(context ? { context } : {}),
+			}, effect, stage, undefined, recapRequests);
 			if (effect !== "failed") {
 				if (input.decisionRecap) showCompletionView(ctx, {
 					recap: input.decisionRecap.text, effect,
 				}, generation);
 				return;
 			}
-			const message = `${failure.message} Completion ${stage} unavailable (${failure.kind}); no verdict or automatic continuation.`;
+			const contextMessage = context ? [
+				context.model ? `Model ${context.model}.` : "",
+				context.configuredWindowTokens ? `Configured window ${context.configuredWindowTokens.toLocaleString("en-US")} tokens.` : "",
+				context.sessionTokensEstimate !== undefined ? `Session estimate ${context.sessionTokensEstimate.toLocaleString("en-US")} tokens.` : "",
+				"No exact recap token count/overage captured.",
+			].filter(Boolean).join(" ") + " " : "";
+			const message = `${failureTitle}. ${contextMessage}${failure.message} No verdict or automatic continuation.`;
 			showCompletionView(ctx, {
-				recap: input.decisionRecap?.text, effect, failure: message,
+				recap: input.decisionRecap?.text, effect, failure: message, failureTitle,
 			}, generation);
 			if ((visibility === "hidden" || !ctx.hasUI) && lastFailure !== failure.kind) {
 				if (ctx.hasUI) ctx.ui.notify(message, "warning");

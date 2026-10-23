@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Require ≥90% confidence before a `complete` verdict parks the turn; weaker completions get one evidence review (`complete-uncertain`) instead of stopping. A bare acknowledgement's uncertain human-control read can no longer veto a confident completion, which previously produced a redundant review turn after a finished answer.
+- Rename the package, GitHub repository, extension module, audit plugin identity, and user command to `prism-af`; `/completion-cards` remains an alias. Saved settings, `JEV_COMPLETION_GATE_*` environment variables, audit-log location, and card presentation are unchanged.
+- Verify 104 regressions after the routing change and rename: confident/mid/low completion routing, human-control stop/proceed/uncertain, review budget, and the alias command registration.
+
+- Give failed live and retired cards concise stage/cause results: Recap context exceeded, Recap timed out, Judge unavailable, and evidence failures. Preserve raw diagnostics, result-only retirement, cancellation, and no-verdict/no-continuation behavior.
+- Record native session context estimates separately from unknown rejected-recap token counts. Add recap-only provider-hook metadata for payload bytes/items, model, tool count, explicit output cap, and previous-response presence without storing private payloads or altering requests/classifier evidence.
+- Verify context/timeout/HTTP503 failure cards and recap payload telemetry in isolated OMP18.12.6 terminals with synthetic providers, blocked network access, two endings per scenario, input retirement and120→60→160resize. All102regressions pass. Existing-pane activation and a real overflowing recap's exact token count remain unverified; no model-window or compaction setting changed.
 - Rename the package, GitHub repository, extension module, and new audit-record plugin identity to `prism-completion`. Preserve saved settings, environment variables, audit-log location, judge policy, and presentation behavior; the development install now targets `main` rather than the pre-rename release tag.
 - Verify renamed manifest loading and `plugin: "prism-completion"` audit identity in isolated OMP 18.12.6 full/collapse/hidden CLI runs with synthetic native judgment and blocked network access; all 98 regression tests pass.
 - Simplify retired collapsed cards to one selected result label without probability, route, recap, explanations, or metadata. Preserve the short left-hand rule and full-mode retired probabilities; judge policy and model context are unchanged.

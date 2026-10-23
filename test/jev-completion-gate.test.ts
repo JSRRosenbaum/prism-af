@@ -19,7 +19,7 @@ process.env.JEV_COMPLETION_GATE_CONFIG = settingsPath;
 process.env.JEV_COMPLETION_GATE_AUDIT_LOG = audit;
 delete process.env.JEV_COMPLETION_GATE_VISIBILITY;
 // Exercise startup defaults; import after setting the environment because module loading captures audit/config paths.
-const { default: registerGate } = await import("../extensions/prism-completion.ts");
+const { default: registerGate } = await import("../extensions/prism-af.ts");
 if (previousAudit === undefined) delete process.env.JEV_COMPLETION_GATE_AUDIT_LOG;
 else process.env.JEV_COMPLETION_GATE_AUDIT_LOG = previousAudit;
 afterEach(() => { resetJudgeInternals(); rmSync(settingsPath, { force: true }); });
@@ -74,9 +74,10 @@ async function fixture(
 	model = "finite",
 	options: {
 		recap?: RecapProvider | null;
-		model?: { provider: string; id: string } | null;
+		model?: { provider: string; id: string; contextWindow?: number } | null;
 		branch?: () => unknown[];
 		control?: (input: { userRequest: string }) => Promise<unknown>;
+		contextUsage?: { tokens: number; contextWindow: number; percent: number };
 	} = {},
 ) {
 	let calls = 0;
@@ -118,6 +119,7 @@ async function fixture(
 	const recap = options.recap === undefined ? async () => defaultRecap : options.recap;
 	const context = {
 		modelRegistry: {}, hasPendingMessages: () => pending, hasUI: true,
+		getContextUsage: () => options.contextUsage,
 		sessionManager: {
 			getBranch: () => options.branch?.() ?? [],
 			getEntries: () => { throw new Error("All-branch evidence must never be read"); },
@@ -152,6 +154,7 @@ async function fixture(
 	};
 	return {
 		settle: (event: unknown) => handlers.session_stop(event, context),
+		providerPayload: (payload: unknown) => handlers.before_provider_request?.({ type: "before_provider_request", payload }, context),
 		setVisibility: (mode: string) => commands["completion-cards"]!.handler(mode, context),
 		submit: async (text: string) => {
 			await handlers.input?.({ type: "input", text, source: "interactive" }, context);
@@ -368,7 +371,7 @@ test("human-control classification receives only current human evidence, not ass
 });
 
 test("uncertain human control never becomes ordinary actionable continuation", async () => {
-	const gate = await fixture(undefined, undefined, {
+	const gate = await fixture(async () => ({ choice: "complete", probabilities: { complete: 0.7 } }), undefined, {
 		control: async () => ({ choice: "uncertain", probabilities: { uncertain: 0.7 } }),
 	});
 	expect(await gate.settle(turn().event)).toMatchObject({ continue: true });
@@ -377,6 +380,31 @@ test("uncertain human control never becomes ordinary actionable continuation", a
 	next.event.stop_hook_active = true;
 	expect(await gate.settle(next.event)).toBeUndefined();
 	expect(lastAudit().effect).toBe("uncertain");
+});
+
+test("a bare acknowledgement cannot veto a confident completion", async () => {
+	const gate = await fixture(async () => ({ choice: "complete", probabilities: { complete: 0.95 } }), undefined, {
+		control: async () => ({ choice: "uncertain", probabilities: { uncertain: 0.66 } }),
+	});
+	expect(await gate.settle(turn("interesting. OK cool ty.", "Installed and healthy; nothing else pending.").event)).toBeUndefined();
+	expect(lastAudit()).toMatchObject({ effect: "stop", routeReason: "complete", decision: { choice: "complete" } });
+});
+
+test("a weakly supported completion requests one review instead of parking the turn", async () => {
+	for (const probability of [0.5001, 0.7, 0.82, 0.8999]) {
+		resetJudgeInternals();
+		const gate = await fixture(async () => ({ choice: "complete", probabilities: { complete: probability } }));
+		expect(await gate.settle(turn().event)).toMatchObject({ continue: true });
+		expect(lastAudit()).toMatchObject({ effect: "review", routeReason: "complete-uncertain", decision: { choice: "complete" } });
+		const reviewed = turn();
+		reviewed.event.stop_hook_active = true;
+		expect(await gate.settle(reviewed.event)).toBeUndefined();
+		expect(lastAudit().effect).toBe("uncertain");
+	}
+	resetJudgeInternals();
+	const confident = await fixture(async () => ({ choice: "complete", probabilities: { complete: 0.9 } }));
+	expect(await confident.settle(turn().event)).toBeUndefined();
+	expect(lastAudit()).toMatchObject({ effect: "stop", routeReason: "complete" });
 });
 
 test("invalid human-control output cannot fall through to work inference", async () => {
@@ -437,6 +465,74 @@ test("unavailable or wrong-model judges cannot produce an approval or invoke fal
 	expect(gate.calls()).toBe(0);
 	expect(lastAudit()).toMatchObject({ effect: "failed", decision: { kind: "unavailable" } });
 });
+
+test("recap payload telemetry excludes unrelated calls and private contents without entering classifier evidence", async () => {
+	const gate = await fixture(async () => ({ choice: "complete", probabilities: { complete: 0.9 } }), undefined, {
+		recap: async options => {
+			await gate.providerPayload({ model: "unrelated-native-side-turn", input: [{ role: "user", content: "PRIVATE_UNRELATED" }] });
+			await gate.providerPayload({
+				model: "wire-model",
+				input: [{ role: "user", content: `${options.promptText}\nPRIVATE_STATE` }],
+				tools: [], max_output_tokens: 512, previous_response_id: "PRIVATE_RESPONSE_ID",
+				authorization: "PRIVATE_CREDENTIAL",
+			});
+			return defaultRecap;
+		},
+	});
+	await gate.providerPayload({ input: "OUTSIDE_RECAP" });
+	expect(await gate.settle(turn().event)).toBeUndefined();
+	const auditRow = lastAudit();
+	expect(auditRow.recapRequests).toHaveLength(1);
+	expect(JSON.stringify(auditRow)).not.toMatch(/PRIVATE_|OUTSIDE_RECAP|unrelated-native-side-turn/);
+	expect(gate.inputs[0]).not.toHaveProperty("recapRequests");
+	expect(gate.inputs[0]).not.toHaveProperty("payloadBytes");
+	const saved = JSON.stringify(auditRow.recapRequests);
+	await gate.providerPayload({ input: gate.recapRequests[0]!.promptText });
+	expect(JSON.stringify(lastAudit().recapRequests)).toBe(saved);
+});
+
+test("recap context rejection distinguishes session estimates from the unknown rejected request and never invokes the judge", async () => {
+	const gate = await fixture(undefined, undefined, {
+		model: { provider: "test-provider", id: "test-model", contextWindow: 272_000 },
+		contextUsage: { tokens: 140_129, contextWindow: 272_000, percent: 51.5 },
+		recap: async () => { throw new Error("Codex error event: Your input exceeds the context window of this model. (code=context_length_exceeded)"); },
+	});
+	expect(await gate.settle(turn().event)).toBeUndefined();
+	expect(gate.calls()).toBe(0);
+	expect(gate.controlCalls()).toBe(0);
+	expect(lastAudit()).toMatchObject({
+		stage: "recap", effect: "failed",
+		decision: { kind: "context", context: {
+			model: "test-provider/test-model", sessionTokensEstimate: 140_129, configuredWindowTokens: 272_000,
+			exactRequestTokens: null, exactOverflowTokens: null,
+		} },
+	});
+	const surface = gate.surfaceText().replace(/[│\s]+/gu, " ");
+	expect(surface).toContain("Recap context exceeded");
+	expect(surface).toContain("Session estimate 140,129");
+	expect(surface).toContain("Configured window 272,000");
+	expect(surface).not.toContain("SELECTED");
+	await gate.setVisibility("collapse");
+	await gate.submit("Next task.");
+	expect(gate.notifications.at(-1)?.text).toContain("Recap context exceeded");
+	expect(gate.notifications.at(-1)?.text).not.toMatch(/140,129|272,000|%|\n/);
+});
+
+for (const [status, kind, title] of [[503, "unavailable", "Judge unavailable"], [504, "timeout", "Judge timed out"]] as const) {
+	test(`post-recap HTTP ${status} retains its failure stage and cause instead of showing a stale recap`, async () => {
+		const gate = await fixture(async () => { throw new Error(`native/judge API error (${status}): unavailable or deadline exceeded`); });
+		await gate.setVisibility("collapse");
+		expect(await gate.settle(turn().event)).toBeUndefined();
+		expect(lastAudit()).toMatchObject({ stage: "judge", effect: "failed", decision: { kind } });
+		expect(gate.surfaceText()).toContain(title);
+		expect(gate.surfaceText()).toContain(String(status));
+		expect(gate.surfaceText()).not.toContain(defaultRecap);
+		expect(gate.surfaceText()).not.toMatch(/SELECTED|Recap unavailable/);
+		await gate.submit("Next task.");
+		expect(gate.notifications.at(-1)?.text).toContain(title);
+		expect(gate.notifications.at(-1)?.text).not.toMatch(/%|\n/);
+	});
+}
 
 test("provider failure is audited as failure rather than a completion verdict", async () => {
 	const gate = await fixture(async () => { throw new Error("local inference deadline"); });

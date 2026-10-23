@@ -37,7 +37,7 @@ export class JudgeUnavailableError extends Error {
 }
 
 /** Classify failures for an observable abstention; never retry or substitute a backend here. */
-export type JudgeFailureKind = "billing" | "quota" | "auth" | "cooldown" | "unavailable" | "timeout" | "error";
+export type JudgeFailureKind = "billing" | "quota" | "auth" | "cooldown" | "unavailable" | "context" | "timeout" | "error";
 export interface JudgeFailure {
 	kind: JudgeFailureKind;
 	expected: boolean;
@@ -50,7 +50,7 @@ const EXPECTED_FAILURES = new Set<JudgeFailureKind>(["billing", "quota", "auth",
 
 export function describeJudgeFailure(error: unknown): JudgeFailure {
 	const message = error instanceof Error ? error.message : String(error);
-	const status = Number(/\((40[1-3]|429)\)|\bHTTP (40[1-3]|429)\b/.exec(message)?.slice(1).find(Boolean)) || undefined;
+	const status = Number(/\(([45]\d\d)\)|\bHTTP ([45]\d\d)\b/.exec(message)?.slice(1).find(Boolean)) || undefined;
 	const link = /https?:\/\/[^\s"'<>)]+/.exec(message)?.[0];
 	let kind: JudgeFailureKind = "error";
 	if (error instanceof JudgeUnavailableError) kind = "unavailable";
@@ -58,7 +58,9 @@ export function describeJudgeFailure(error: unknown): JudgeFailure {
 	else if (status === 429 || /rate.?limit|quota/i.test(message)) kind = "quota";
 	else if (status === 401 || status === 403 || /unauthori[sz]ed|forbidden|invalid api key/i.test(message)) kind = "auth";
 	else if (/rejected the account recently/i.test(message)) kind = "cooldown";
-	else if ((error instanceof Error && error.name === "TimeoutError") || /timed? ?out|aborted/i.test(message)) kind = "timeout";
+	else if (/context_length_exceeded|exceeds? the context window|maximum context length/i.test(message)) kind = "context";
+	else if (status === 503 || status === 502) kind = "unavailable";
+	else if (status === 408 || status === 504 || (error instanceof Error && error.name === "TimeoutError") || /timed? ?out|aborted/i.test(message)) kind = "timeout";
 	return { kind, expected: EXPECTED_FAILURES.has(kind), ...(status ? { status } : {}), message, ...(link ? { link } : {}) };
 }
 
