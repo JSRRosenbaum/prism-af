@@ -18,7 +18,7 @@ A finished turn gets a verdict card; it retires to a single line once you contin
 
 ![Collapsed completion card showing Complete · 99.0%](https://raw.githubusercontent.com/JSRRosenbaum/prism-af/main/docs/images/completion-card.png)
 
-![The same card retired to a one-line notice above the next prompt](https://raw.githubusercontent.com/JSRRosenbaum/prism-af/main/docs/images/retired-card.png)
+![The same card retired to a one-line notice above the next prompt](https://raw.githubusercontent.com/JSRRosenbaum/prism-af/main/docs/images/card-retired.png)
 
 ## How it works
 
