@@ -2,15 +2,15 @@
 
 **Advisory completion gate for [OMP](https://github.com/can1357/oh-my-pi).** Every finished turn is checked by a local judge: is the work actually done, or did the assistant stop on a promise? If the evidence is thin, it asks for one more turn — then it stands down.
 
-<img src="https://raw.githubusercontent.com/JSRRosenbaum/prism-af/main/docs/images/anti-flatline.jpg" alt="No flatline. Move." width="420" align="right">
-
 An ordinary extension factory registers the native `session_stop` hook. No queue, scheduler, provider transport, or chat integration is added. The gate never holds authority: it can ask the agent to look again, not to act.
 
 - **Advisory, never authoritative.** A verdict routes a turn; it does not approve work, grant permission, or override a human stop.
 - **Bounded by construction.** At most one evidence-review continuation per chain. Judge failure abstains instead of inventing a verdict.
 - **Local.** Native recap + native `typesafe` judge, audited to a local JSONL file. No telemetry of its own.
 
-<br clear="right">
+<p align="center">
+  <img src="https://raw.githubusercontent.com/JSRRosenbaum/prism-af/main/docs/images/anti-flatline.jpg" alt="No flatline. Move — the prism-af motto" width="360">
+</p>
 
 ## What it looks like
 
