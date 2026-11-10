@@ -20,7 +20,7 @@ export async function judgeWithTimeout(input: {
 	onUsage?: (event: unknown) => void;
 }) {
 	const { model, registry, sessionId, request, signal, timeoutMs, purpose, onUsage } = input;
-	if (!isJudgmentApi(model.api)) throw new Error("Configured model does not support native judgments; no fallback attempted");
+	if (!isJudgmentApi(model.api)) throw new Error(`Configured model API ${model.api} does not support native judgments; no fallback attempted`);
 	if (!await registry.getApiKey(model, sessionId, { signal })) throw new Error("Configured judge credentials unavailable; no fallback attempted");
 	const client = new NativeJudge({
 		api: model.api, provider: model.provider, model: model.requestModelId ?? model.id,
@@ -42,6 +42,8 @@ export async function judgeWithTimeout(input: {
 		throw error;
 	} finally {
 		if (usage.cost.total === 0) calculateCost(model, usage);
+		// OMP labels every native judgment attempt with the ledger role "typesafe" (see JudgmentUsage.role);
+		// `api` carries the actual dialect, so usage stays accurate for every judgment wire.
 		onUsage?.({ purpose, role: "typesafe", api: model.api, provider: model.provider,
 			model: model.id, usage, stopReason, ...(errorMessage ? { errorMessage } : {}) });
 	}
