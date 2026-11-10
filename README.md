@@ -93,8 +93,10 @@ disabledExtensions:
 ```
 
 The package entrypoint is `extension-module:prism-af`, so the legacy disable does not suppress it. Never install both undisabled — that gives future sessions two registrations.
+
 Older installs may use `jev-completion-gate.ts`; use the module ID matching the actual legacy filename, not both names by assumption.
 
+Also remove the legacy entrypoint from any explicit `extensions` list or `-e` launcher argument. On OMP 18.10.4, explicitly configured files bypass discovery disabling; keeping that path can run both gates despite the disabled module ID.
 
 For a session-only launch, OMP 18.12.5 resolves the package manifest through `--extension /absolute/path/to/package-directory`. Do **not** substitute `--plugin-dir`: that flag injects Claude/Agent plugin roots and does not load this native extension module.
 
