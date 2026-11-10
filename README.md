@@ -102,7 +102,7 @@ For a session-only launch, OMP 18.12.5 resolves the package manifest through `--
 
 ### Native judge configuration
 
-Use the existing `config.yml`, model registry, and credentials. Select the full provider/model identity of an already configured native judge. The host's `isJudgmentApi` selects its own dialect; both TypeSafe and OpenAI Decisions are accepted without substituting a chat backend or trying another provider:
+Use the existing `config.yml`, model registry, and credentials. Select the full provider/model identity of an already configured native judge. The host's `isJudgmentApi` selects its own dialect, so every native judgment API is accepted — `typesafe`, `openai-decisions`, `openrouter-decisions`, and `workers-ai-systemone` — without substituting a chat backend or trying another provider:
 
 ```yaml
 modelRoles:
