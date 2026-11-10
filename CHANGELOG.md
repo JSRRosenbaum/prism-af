@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Local compatibility build `0.1.1-wbm.1`: use the installed host's native judgment API and `isJudgmentApi` instead of requiring or hard-coding TypeSafe. Preserve exact configured model identity, disabled fallback chains, native credentials/headers, cancellation and usage accounting.
+- Use the stable TUI root utility exports so the package loads on the customized OMP 18.10.4 host without replacing its intercom presentation runtime. Retain the 18.12.5 development surface.
+- Verify 104 existing regressions and real native completion/explicit-stop classification through an existing OpenAI Decisions judge. A controlled unfinished answer requested and executed a native continuation, then one evidence review; the final low-probability decision parked without claiming completion. This proves those exercised paths, not universal model accuracy or activation in existing processes.
+
 - Require ≥90% confidence before a `complete` verdict parks the turn; weaker completions get one evidence review (`complete-uncertain`) instead of stopping. A bare acknowledgement's uncertain human-control read can no longer veto a confident completion, which previously produced a redundant review turn after a finished answer.
 - Rename the package, GitHub repository, extension module, audit plugin identity, and user command to `prism-af`; `/completion-cards` remains an alias. Saved settings, `JEV_COMPLETION_GATE_*` environment variables, audit-log location, and card presentation are unchanged.
 - Verify 104 regressions after the routing change and rename: confident/mid/low completion routing, human-control stop/proceed/uncertain, review budget, and the alias command registration.

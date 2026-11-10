@@ -14,6 +14,7 @@ async function backend(role: unknown, model = { provider: "native", id: "judge",
       overlay: () => ({}),
     },
     journalJudgmentUsage: () => undefined,
+    isJudgmentApi: (api: string) => api === "typesafe" || api === "openai-decisions",
     resolveJudge: () => {
       resolutions++;
       return {

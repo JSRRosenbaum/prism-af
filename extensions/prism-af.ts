@@ -107,7 +107,7 @@ function recordDecision(event: SessionStopEvent, input: CompletionInput, decisio
 	appendAudit(auditLogPath, {
 		version: 5,
 		plugin: "prism-af",
-		pluginVersion: "0.1.0",
+		pluginVersion: "0.1.1-wbm.1",
 		decisionContractVersion: COMPLETION_CONTRACT_VERSION,
 		promptVersion: CLASSIFIER_PROMPT_VERSION,
 		continuationPolicyVersion: CONTINUATION_POLICY_VERSION,

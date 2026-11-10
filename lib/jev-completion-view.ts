@@ -1,6 +1,6 @@
 import type { Component } from "@oh-my-pi/pi-tui";
 import { renderOutputBlock } from "@oh-my-pi/pi-tui/render";
-import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@oh-my-pi/pi-tui/utils";
+import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@oh-my-pi/pi-tui";
 import type { Theme, ThemeColor } from "@oh-my-pi/pi-tui/theme";
 import { COMPLETION_STATES, type CompletionDecision } from "./jev-completion-contract.ts";
 
