@@ -89,6 +89,7 @@ interface JudgeInternals {
 	settings: unknown;
 	resolveJudge(deps: Record<string, unknown>): Judge;
 	journalJudgmentUsage(manager: unknown): unknown;
+	isJudgmentApi(api: string): boolean;
 	judgeWithTimeout?(input: Record<string, unknown>): Promise<JudgeResult>;
 }
 export interface JudgeContext {
@@ -120,6 +121,7 @@ export function loadJudgeInternals(importer: Importer = hostImporter): Promise<J
 			typeof host.settings !== "object" || host.settings === null ? "settings" : "",
 			typeof host.resolveJudge !== "function" ? "resolveJudge" : "",
 			typeof host.journalJudgmentUsage !== "function" ? "journalJudgmentUsage" : "",
+			typeof host.isJudgmentApi !== "function" ? "isJudgmentApi" : "",
 		].filter(Boolean);
 		if (missing.length) {
 			throw new JudgeUnavailableError(
@@ -171,8 +173,8 @@ export function createJudge(ctx: JudgeContext, purpose: string, timeoutMs?: numb
 				...(onUsage ? { onUsage } : {}),
 			});
 			const model = judge.primaryModel?.();
-			if (!model || `${model.provider}/${model.id}` !== requiredModel || model.api !== "typesafe") {
-				throw new JudgeUnavailableError(`Completion judge requires configured native typesafe model ${requiredModel}; no fallback was attempted`);
+			if (!model || `${model.provider}/${model.id}` !== requiredModel || !omp.isJudgmentApi(model.api)) {
+				throw new JudgeUnavailableError(`Completion judge requires configured native judgment model ${requiredModel}; no fallback was attempted`);
 			}
 			if (timeoutMs !== undefined) {
 				if (!omp.judgeWithTimeout) throw new JudgeUnavailableError("OMP native timed-judge client unavailable");

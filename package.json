@@ -1,6 +1,6 @@
 {
   "name": "prism-af",
-  "version": "0.1.0",
+  "version": "0.1.1-wbm.1",
   "description": "Advisory completion judgment using OMP native recap, judge, and stop-hook continuation",
   "license": "MIT",
   "type": "module",
@@ -26,8 +26,8 @@
     "test": "bun test"
   },
   "peerDependencies": {
-    "@oh-my-pi/pi-coding-agent": "18.12.5",
-    "@oh-my-pi/pi-tui": "18.12.5"
+    "@oh-my-pi/pi-coding-agent": "18.10.4 || 18.12.5",
+    "@oh-my-pi/pi-tui": "18.10.4 || 18.12.5"
   },
   "peerDependenciesMeta": {
     "@oh-my-pi/pi-coding-agent": { "optional": true },

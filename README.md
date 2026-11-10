@@ -1,12 +1,12 @@
 # prism-af
 
-**Advisory completion gate for [OMP](https://github.com/can1357/oh-my-pi).** Every finished turn is checked by a local judge: is the work actually done, or did the assistant stop on a promise? If the evidence is thin, it asks for one more turn — then it stands down.
+**Advisory completion gate for [OMP](https://github.com/can1357/oh-my-pi).** Every finished turn is checked by the configured native judge: is the work actually done, or did the assistant stop early? Thin evidence can request one review; unfinished authorized work can resume within native host limits.
 
 An ordinary extension factory registers the native `session_stop` hook. No queue, scheduler, provider transport, or chat integration is added. The gate never holds authority: it can ask the agent to look again, not to act.
 
 - **Advisory, never authoritative.** A verdict routes a turn; it does not approve work, grant permission, or override a human stop.
 - **Bounded by construction.** At most one evidence-review continuation per chain. Judge failure abstains instead of inventing a verdict.
-- **Local.** Native recap + native `typesafe` judge, audited to a local JSONL file. No telemetry of its own.
+- **Host-native.** Native recap and the configured native judgment API, audited to a local JSONL file. No telemetry of its own.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/JSRRosenbaum/prism-af/main/docs/images/anti-flatline.jpg" alt="No flatline. Move — the prism-af motto" width="360">
@@ -68,6 +68,8 @@ Two independent questions are asked. Neither one grants authority.
 
 ## Install
 
+The local `0.1.1-wbm.1` compatibility build adds OpenAI Decisions support without changing host or provider configuration. Until these changes are published, install its reviewed local release snapshot; the GitHub `main` command below still retrieves the upstream version.
+
 ```sh
 omp plugin install github:JSRRosenbaum/prism-af#main
 ```
@@ -83,20 +85,22 @@ A local directory install is a **symlink**, not a release snapshot. The `omp.ext
 
 Start a fresh OMP process after installation, or use an orderly exact-session resume supported by your host. Package discovery, `/reload`, and `ctx.reload()` do not prove changed extension code is active.
 
-Migrating from a loose `jev-completion-gate.ts`? Disable only that legacy module, leaving unrelated global registrations untouched:
+Migrating from a loose `judge-completion-gate.ts`? Disable only that legacy module, leaving unrelated global registrations untouched:
 
 ```yaml
 disabledExtensions:
-  - extension-module:jev-completion-gate
+  - extension-module:judge-completion-gate
 ```
 
 The package entrypoint is `extension-module:prism-af`, so the legacy disable does not suppress it. Never install both undisabled — that gives future sessions two registrations.
+Older installs may use `jev-completion-gate.ts`; use the module ID matching the actual legacy filename, not both names by assumption.
+
 
 For a session-only launch, OMP 18.12.5 resolves the package manifest through `--extension /absolute/path/to/package-directory`. Do **not** substitute `--plugin-dir`: that flag injects Claude/Agent plugin roots and does not load this native extension module.
 
 ### Native judge configuration
 
-Use the existing `config.yml`, model registry, and credentials. Select the full provider/model identity of an already configured native `typesafe` judge:
+Use the existing `config.yml`, model registry, and credentials. Select the full provider/model identity of an already configured native judge. The host's `isJudgmentApi` selects its own dialect; both TypeSafe and OpenAI Decisions are accepted without substituting a chat backend or trying another provider:
 
 ```yaml
 modelRoles:
@@ -143,7 +147,7 @@ Failure cards name the stage and cause (`Recap context exceeded`, `Recap timed o
 
 ## Compatibility
 
-Targets **OMP 18.12.5**; other versions are unverified. The manifest pins host peer versions, and optional peers come from the running compiled host rather than a second runtime. Bun is needed for development tests only.
+Targets **OMP 18.10.4 and 18.12.5** internal API surfaces. This compatibility revision was exercised on a customized 18.10.4 compiled host with its existing OpenAI Decisions judge; development tests use the 18.12.5 TUI package. Other builds require fresh-session qualification. Optional host peers come from the running compiled host rather than a second runtime. Bun is needed for development tests only.
 
 The plugin depends on internal OMP APIs: `settings`, `resolveJudge`/`journalJudgmentUsage`, the native `NativeJudge` client, and catalog cost calculation — used so completion calls get an explicit HTTP deadline instead of the role chain's fixed ten-second attempt. An incompatible upgrade causes explicit abstention, not a replacement verdict.
 

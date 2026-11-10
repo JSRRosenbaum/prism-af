@@ -1,15 +1,15 @@
 {
-  "lockfileVersion": 2,
+  "lockfileVersion": 1,
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "prism-completion",
+      "name": "prism-af",
       "devDependencies": {
         "@oh-my-pi/pi-tui": "18.12.5",
       },
       "peerDependencies": {
-        "@oh-my-pi/pi-coding-agent": "18.12.5",
-        "@oh-my-pi/pi-tui": "18.12.5",
+        "@oh-my-pi/pi-coding-agent": "18.10.4 || 18.12.5",
+        "@oh-my-pi/pi-tui": "18.10.4 || 18.12.5",
       },
       "optionalPeers": [
         "@oh-my-pi/pi-coding-agent",

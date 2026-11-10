@@ -109,6 +109,7 @@ async function fixture(
 	await loadJudgeInternals(async () => ({
 		settings: { getModelRole: () => "synthetic-native/finite", overlay: () => ({}) },
 		journalJudgmentUsage: () => undefined,
+		isJudgmentApi: (api: string) => api === "typesafe",
 		resolveJudge: () => synthetic,
 		judgeWithTimeout: async ({ request }: { request: Parameters<typeof synthetic.judge>[0] }) => synthetic.judge(request),
 	}));

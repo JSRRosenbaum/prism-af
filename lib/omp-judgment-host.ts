@@ -3,8 +3,9 @@
 export { settings } from "@oh-my-pi/pi-coding-agent";
 export { journalJudgmentUsage, resolveJudge } from "@oh-my-pi/pi-coding-agent/judgment";
 
-import { NativeJudge, tokenUsage, type Model, type JudgmentRequest, type Usage } from "@oh-my-pi/pi-ai";
+import { isJudgmentApi, NativeJudge, tokenUsage, type Model, type JudgmentRequest, type Usage } from "@oh-my-pi/pi-ai";
 import { calculateCost } from "@oh-my-pi/pi-catalog/models";
+export { isJudgmentApi };
 
 interface NativeRegistry {
 	getApiKey(model: Model, sessionId: string | undefined, options: { signal?: AbortSignal }): Promise<unknown>;
@@ -12,16 +13,17 @@ interface NativeRegistry {
 	resolveModelHeaders(model: Model, signal?: AbortSignal): Promise<Record<string, string> | undefined>;
 }
 
-/** OMP 18.12.5's role chain fixes native HTTP attempts at 10s; use its native client with an explicit budget. */
+/** Use the host's native judgment dialect and credential flow with an explicit per-attempt budget. */
 export async function judgeWithTimeout(input: {
 	model: Model; registry: NativeRegistry; sessionId?: string; purpose: string;
 	request: JudgmentRequest; signal?: AbortSignal; timeoutMs: number;
 	onUsage?: (event: unknown) => void;
 }) {
 	const { model, registry, sessionId, request, signal, timeoutMs, purpose, onUsage } = input;
+	if (!isJudgmentApi(model.api)) throw new Error("Configured model does not support native judgments; no fallback attempted");
 	if (!await registry.getApiKey(model, sessionId, { signal })) throw new Error("Configured judge credentials unavailable; no fallback attempted");
 	const client = new NativeJudge({
-		api: "typesafe", provider: model.provider, model: model.requestModelId ?? model.id,
+		api: model.api, provider: model.provider, model: model.requestModelId ?? model.id,
 		baseUrl: model.baseUrl, apiKey: registry.resolver(model, sessionId),
 		headers: await registry.resolveModelHeaders(model, signal), timeoutMs,
 		supportsImages: false,
