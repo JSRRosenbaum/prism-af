@@ -89,6 +89,7 @@ async function fixture(
 	const timeline: string[] = [];
 	const inputs: JudgeInput[] = [];
 	const recapRequests: RecapOptions[] = [];
+	const statuses: [string, string | undefined][] = [];
 	const handlers: Record<string, Function> = {};
 	const commands: Record<string, { handler: Function }> = {};
 	const synthetic = {
@@ -139,6 +140,7 @@ async function fixture(
 		}),
 		ui: {
 			theme: loadThemeSync("dark"),
+			setStatus: (key: string, text: string | undefined) => { statuses.push([key, text]); },
 			notify: (text: string, level: string) => {
 				text = stripVTControlCharacters(text);
 				notices.push(text);
@@ -155,6 +157,8 @@ async function fixture(
 	};
 	return {
 		settle: (event: unknown) => handlers.session_stop(event, context),
+		start: (event: unknown) => handlers.session_start?.(event, context),
+		statuses: () => statuses,
 		providerPayload: (payload: unknown) => handlers.before_provider_request?.({ type: "before_provider_request", payload }, context),
 		setVisibility: (mode: string) => commands["completion-cards"]!.handler(mode, context),
 		submit: async (text: string) => {
@@ -174,6 +178,14 @@ async function fixture(
 function lastAudit() {
 	return JSON.parse(readFileSync(audit, "utf8").trim().split("\n").at(-1)!);
 }
+
+test("session start advertises the loaded gate in the composer status line", async () => {
+	const gate = await fixture();
+	expect(gate.statuses()).toEqual([]);
+	gate.start({ type: "session_start" });
+	// The host renders and colours hook statuses; the extension supplies the preset symbol and label only.
+	expect(gate.statuses()).toEqual([["prism-af", `${loadThemeSync("dark").symbol("status.enabled")} prism`]]);
+});
 
 test("duplicate delivery of a settled answer does not classify or resume it twice", async () => {
 	const gate = await fixture();

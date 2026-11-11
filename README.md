@@ -7,6 +7,7 @@ An ordinary extension factory registers the native `session_stop` hook. No queue
 - **Advisory, never authoritative.** A verdict routes a turn; it does not approve work, grant permission, or override a human stop.
 - **Bounded by construction.** At most one evidence-review continuation per chain. Judge failure abstains instead of inventing a verdict.
 - **Host-native.** Native recap and the configured native judgment API, audited to a local JSONL file. No telemetry of its own.
+- **Visible.** A `● prism` fact in the composer status line shows the gate is loaded, without waiting for a card. It uses the host's `status.enabled` symbol and respects `statusLine.showHookStatus`.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/JSRRosenbaum/prism-af/main/docs/images/anti-flatline.jpg" alt="No flatline. Move — the prism-af motto" width="360">
@@ -68,7 +69,7 @@ Two independent questions are asked. Neither one grants authority.
 
 ## Install
 
-The local `0.1.1-wbm.1` compatibility build adds OpenAI Decisions support without changing host or provider configuration. Until these changes are published, install its reviewed local release snapshot; the GitHub `main` command below still retrieves the upstream version.
+`main` now carries every native judgment dialect (`typesafe`, `openai-decisions`, `openrouter-decisions`, `workers-ai-systemone`) and the composer status indicator, without changing host or provider configuration.
 
 ```sh
 omp plugin install github:JSRRosenbaum/prism-af#main

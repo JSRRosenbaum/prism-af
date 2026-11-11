@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Local compatibility build `0.1.2-wbm.1`: show a `● prism` fact in the composer status line while the gate is loaded. It uses the host's `status.enabled` symbol, emits no ANSI, and respects `statusLine.showHookStatus`, so activation is visible before the first card.
 - Local compatibility build `0.1.1-wbm.1`: use the installed host's native judgment API and `isJudgmentApi` instead of requiring or hard-coding TypeSafe, so every native judgment dialect (`typesafe`, `openai-decisions`, `openrouter-decisions`, `workers-ai-systemone`) is accepted while chat APIs still abstain. Preserve exact configured model identity, disabled fallback chains, native credentials/headers, cancellation and usage accounting.
 - Use the stable TUI root utility exports so the package loads on the customized OMP 18.10.4 host without replacing its intercom presentation runtime. Retain the 18.12.5 development surface.
 - Migration must remove explicit legacy `extensions` paths or `-e` arguments as well as disabling ambient discovery. OMP 18.10.4 otherwise loads the old gate alongside the package.

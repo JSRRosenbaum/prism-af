@@ -107,7 +107,7 @@ function recordDecision(event: SessionStopEvent, input: CompletionInput, decisio
 	appendAudit(auditLogPath, {
 		version: 5,
 		plugin: "prism-af",
-		pluginVersion: "0.1.1-wbm.1",
+		pluginVersion: "0.1.2-wbm.1",
 		decisionContractVersion: COMPLETION_CONTRACT_VERSION,
 		promptVersion: CLASSIFIER_PROMPT_VERSION,
 		continuationPolicyVersion: CONTINUATION_POLICY_VERSION,
@@ -286,6 +286,14 @@ export default function registerJevCompletionGate(pi: ExtensionAPI): void {
 			handler: (args: string, ctx: ExtensionContext) => setCards(args, ctx, command),
 		});
 	}
+
+	// Composer status: a persistent dim fact that this gate is loaded for the session.
+	// The host renders hook statuses itself (honouring `statusLine.showHookStatus`), and
+	// `status.enabled` follows the active symbol preset, so no ANSI or hardcoded glyph.
+	pi.on("session_start", (_event, ctx) => {
+		if (!ctx.hasUI) return;
+		ctx.ui.setStatus("prism-af", `${ctx.ui.theme.symbol("status.enabled")} prism`);
+	});
 
 	pi.on("session_stop", async (event, ctx) => {
 		const assistant = event.last_assistant_message;
