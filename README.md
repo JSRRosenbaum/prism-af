@@ -7,7 +7,7 @@ An ordinary extension factory registers the native `session_stop` hook. No queue
 - **Advisory, never authoritative.** A verdict routes a turn; it does not approve work, grant permission, or override a human stop.
 - **Bounded by construction.** At most one evidence-review continuation per chain. Judge failure abstains instead of inventing a verdict.
 - **Host-native.** Native recap and the configured native judgment API, audited to a local JSONL file. No telemetry of its own.
-- **Visible.** A `● prism` fact in the composer status line shows the gate is loaded, without waiting for a card. It uses the host's `status.enabled` symbol and respects `statusLine.showHookStatus`.
+- **Visible.** A `◈ prism` mark in the composer status line shows the gate is loaded — its presence is the signal, independent of card visibility. The host owns colour; `statusLine.showHookStatus` still hides it.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/JSRRosenbaum/prism-af/main/docs/images/anti-flatline.jpg" alt="No flatline. Move — the prism-af motto" width="360">

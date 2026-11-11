@@ -287,12 +287,12 @@ export default function registerJevCompletionGate(pi: ExtensionAPI): void {
 		});
 	}
 
-	// Composer status: a persistent dim fact that this gate is loaded for the session.
-	// The host renders hook statuses itself (honouring `statusLine.showHookStatus`), and
-	// `status.enabled` follows the active symbol preset, so no ANSI or hardcoded glyph.
+	// Composer status: a persistent mark whose presence means the gate is loaded.
+	// `◈` is the prism mark, not a host status symbol, so it is not read as a generic
+	// enabled/error fact. The host still owns colour and `statusLine.showHookStatus`.
 	pi.on("session_start", (_event, ctx) => {
 		if (!ctx.hasUI) return;
-		ctx.ui.setStatus("prism-af", `${ctx.ui.theme.symbol("status.enabled")} prism`);
+		ctx.ui.setStatus("prism-af", "◈ prism");
 	});
 
 	pi.on("session_stop", async (event, ctx) => {

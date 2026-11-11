@@ -183,8 +183,8 @@ test("session start advertises the loaded gate in the composer status line", asy
 	const gate = await fixture();
 	expect(gate.statuses()).toEqual([]);
 	gate.start({ type: "session_start" });
-	// The host renders and colours hook statuses; the extension supplies the preset symbol and label only.
-	expect(gate.statuses()).toEqual([["prism-af", `${loadThemeSync("dark").symbol("status.enabled")} prism`]]);
+	// The host renders and colours hook statuses; the extension supplies the prism mark only.
+	expect(gate.statuses()).toEqual([["prism-af", "◈ prism"]]);
 });
 
 test("duplicate delivery of a settled answer does not classify or resume it twice", async () => {
