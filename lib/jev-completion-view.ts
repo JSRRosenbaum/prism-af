@@ -34,7 +34,7 @@ function completionLabel(view: CompletionView): string {
 	const score = typeof probability === "number" && Number.isFinite(probability) && probability >= 0 && probability <= 1
 		? ` · ${(probability * 100).toFixed(1)}%` : "";
 	if (view.effect === undefined) return "Judging...";
-	if (view.effect === "failed" && view.failureTitle) return view.failureTitle;
+	if ((view.effect === "failed" || view.effect === "skipped") && view.failureTitle) return view.failureTitle;
 	if (view.effect === "stop") return `${selected?.label ?? "No verdict"}${score}`;
 	return `${selected?.label ?? "No verdict"} · ${view.effect === "continue" ? "continuation requested" : view.effect}${score}`;
 }
@@ -42,13 +42,14 @@ function completionLabel(view: CompletionView): string {
 function completionColor(view: CompletionView): ThemeColor {
 	if (view.effect === undefined || view.effect === "continue") return "accent";
 	if (view.effect === "failed") return "error";
-	if (view.effect === "stop" || view.effect === "cancelled" || view.effect === "superseded") return "muted";
+	if (view.effect === "stop" || view.effect === "cancelled" || view.effect === "superseded" || view.effect === "skipped") return "muted";
 	return "warning";
 }
 
 function retiredResult(view: CompletionView): { label: string; color: ThemeColor } {
 	if (view.effect === "failed") return { label: view.failureTitle ?? "Judge failed", color: "error" };
 	if (view.effect === "cancelled") return { label: "Cancelled", color: "muted" };
+	if (view.effect === "skipped") return { label: view.failureTitle ?? "Not judged", color: "muted" };
 	if (view.effect === "superseded") return { label: "Superseded", color: "muted" };
 	const selected = choices.find(choice => choice.key === view.decision?.choice);
 	return selected ?? { label: "No verdict", color: "warning" };

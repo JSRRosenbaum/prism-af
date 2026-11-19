@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Judge complete inline plans and specs: the terminal-answer window is now 160,000 characters (about 40k tokens; was 24,000) and the human-request window 32,000 (was 8,000). A 115,298-character plan had been reported as "Evidence failed" (2026-11-19). Evidence beyond a window is now a muted "Too long to judge" skip: the answer stands, unjudged and still never truncated, with no failure warning. The judge deadline is unchanged; a slow judge still reports a timeout, not a verdict.
 - Local compatibility build `0.1.2-wbm.1`: show a `◈ prism` mark in the composer status line while the gate is loaded. The prism glyph's presence is the signal, so it does not borrow a host status symbol; the extension emits no ANSI, and `statusLine.showHookStatus` still controls visibility.
 - Local compatibility build `0.1.1-wbm.1`: use the installed host's native judgment API and `isJudgmentApi` instead of requiring or hard-coding TypeSafe, so every native judgment dialect (`typesafe`, `openai-decisions`, `openrouter-decisions`, `workers-ai-systemone`) is accepted while chat APIs still abstain. Preserve exact configured model identity, disabled fallback chains, native credentials/headers, cancellation and usage accounting.
 - Use the stable TUI root utility exports so the package loads on the customized OMP 18.10.4 host without replacing its intercom presentation runtime. Retain the 18.12.5 development surface.

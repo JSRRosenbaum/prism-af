@@ -136,8 +136,8 @@ To prove activation, observe a **fresh record for the exact native session** wit
 
 | Evidence | Bound |
 | --- | --- |
-| Current human request | 8,000 characters; rejected intact if oversized |
-| Terminal answer | 24,000 characters; rejected intact if oversized |
+| Current human request | 32,000 characters; above that the answer stands unjudged ("Too long to judge"), never truncated |
+| Terminal answer | 160,000 characters (about 40k tokens; complete inline plans fit); above that the answer stands unjudged ("Too long to judge"), never truncated |
 | Recent context | 4,000 characters, at most two messages per role |
 | Fresh recap | 1–1,200 characters; no truncation or substitute |
 | Recap deadline | 15 s |

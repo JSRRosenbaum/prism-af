@@ -565,29 +565,35 @@ test("repeated provider failures replace pending UI without inventing a selected
 	}
 });
 
-test("oversized human evidence exposes its actual size and limit in collapsed UI without inference", async () => {
+test("oversized human evidence is skipped as too long to judge, with its size and window, without recap or judge", async () => {
 	const gate = await fixture();
 	await gate.setVisibility("collapse");
-	expect(await gate.settle(turn("x".repeat(13_358)).event)).toBeUndefined();
+	expect(await gate.settle(turn("x".repeat(32_001)).event)).toBeUndefined();
 	expect(gate.calls()).toBe(0);
 	expect(gate.controlCalls()).toBe(0);
 	expect(gate.recapRequests).toHaveLength(0);
-	expect(lastAudit()).toMatchObject({ stage: "evidence", effect: "failed", input: { userRequest: { length: 13_358 } } });
-	expect(gate.surfaceText()).toContain("13358");
-	expect(gate.surfaceText()).toContain("8000");
-	expect(gate.surfaceText()).not.toContain("Recap unavailable.");
+	expect(lastAudit()).toMatchObject({ stage: "evidence", effect: "skipped", decision: { status: "skipped", kind: "oversized" }, input: { userRequest: { length: 32_001 } } });
+	expect(gate.surfaceText()).toContain("32001");
+	expect(gate.surfaceText()).toContain("32000");
+	expect(gate.surfaceText()).toContain("Too long to judge");
+	expect(gate.surfaceText()).not.toContain("failed");
 });
 
-test("oversized terminal evidence names the answer bound without invoking recap or judge", async () => {
+test("a long inline plan within the window is judged; beyond it the answer stands unjudged (PC-20261119-03)", async () => {
 	const gate = await fixture();
 	await gate.setVisibility("collapse");
-	expect(await gate.settle(turn("Verify the delivered work.", "x".repeat(24_001)).event)).toBeUndefined();
-	expect(gate.calls()).toBe(0);
-	expect(gate.controlCalls()).toBe(0);
-	expect(gate.recapRequests).toHaveLength(0);
-	expect(lastAudit()).toMatchObject({ stage: "evidence", effect: "failed", input: { terminalAnswer: { length: 24_001 } } });
-	expect(gate.surfaceText()).toContain("24001");
-	expect(gate.surfaceText()).toContain("24000");
+	// The 2026-11-19 plan was 115,298 characters: now inside the judged window.
+	await gate.settle(turn("Verify the delivered work.", "x".repeat(115_298)).event);
+	expect(gate.calls()).toBeGreaterThan(0);
+	expect(lastAudit()).toMatchObject({ input: { terminalAnswer: { length: 115_298 } } });
+	expect(lastAudit()?.effect).not.toBe("skipped");
+	const before = gate.calls();
+	expect(await gate.settle(turn("Verify the delivered work.", "x".repeat(160_001)).event)).toBeUndefined();
+	expect(gate.calls()).toBe(before);
+	expect(lastAudit()).toMatchObject({ stage: "evidence", effect: "skipped", input: { terminalAnswer: { length: 160_001 } } });
+	expect(gate.surfaceText()).toContain("160001");
+	expect(gate.surfaceText()).toContain("Too long to judge");
+	expect(gate.surfaceText()).not.toContain("Evidence failed");
 });
 
 test("aborted answers and pending input do not start classification", async () => {
@@ -885,12 +891,12 @@ test("switching branches reads only the new current branch and never reuses a ca
 	expect(lastAudit().effect).toBe("failed");
 });
 
-test("oversized recovered human evidence is rejected intact before recap or judge", async () => {
+test("oversized recovered human evidence is skipped intact before recap or judge", async () => {
 	const gate = await fixture(undefined, undefined, { branch: () => [branchRequest("x".repeat(64 * 1024))] });
 	expect(await gate.settle(compactedTurn())).toBeUndefined();
 	expect(gate.calls()).toBe(0);
 	expect(gate.recapRequests).toHaveLength(0);
-	expect(lastAudit()).toMatchObject({ effect: "failed", input: { userRequest: { length: 64 * 1024 } } });
+	expect(lastAudit()).toMatchObject({ effect: "skipped", input: { userRequest: { length: 64 * 1024 } } });
 });
 
 test("native branch lookup failure is observable and cannot fall back to summaries or another branch", async () => {

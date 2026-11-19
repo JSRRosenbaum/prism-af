@@ -343,3 +343,12 @@ test("retired collapsed cards show one selected result with its semantic color, 
 		expect(stripVTControlCharacters(rendered)).not.toContain("Complete");
 	}
 });
+
+test("a skipped oversized answer renders as a muted 'Too long to judge', not a failure", () => {
+	const failure = "Answer length 160001 exceeds the 160000-character judged window; the answer stands, not evaluated and not truncated.";
+	const card = createCompletionView({ effect: "skipped", failure, failureTitle: "Too long to judge" }, () => theme, "collapse");
+	const wide = stripVTControlCharacters(card.render(160).join("\n"));
+	expect(wide).toContain("Too long to judge");
+	expect(wide).toContain("160001");
+	expect(wide).not.toContain("failed");
+});

@@ -10,8 +10,11 @@ import {
 	isHumanControl, isWorkState, routeCompletionDecision, type CompletionDecision,
 } from "../lib/jev-completion-contract.ts";
 
-const MAX_TERMINAL_ANSWER_CHARS = 24_000;
-const MAX_MESSAGE_CHARS = 8_000;
+// Complete plans and specs are reviewed inline, so long answers are normal (a 115,298-character plan, 2026-11-19).
+// About 40k tokens of answer (about 50k with the other evidence). The judge's deadline is unchanged, so a slow judge
+// reports a timeout rather than a verdict. Beyond the window the answer stands unjudged; never truncated.
+const MAX_TERMINAL_ANSWER_CHARS = 160_000;
+const MAX_MESSAGE_CHARS = 32_000;
 const MAX_CONTEXT_CHARS = 4_000;
 const MAX_RECAP_CHARS = 1_200;
 const CLASSIFIER_PROMPT_VERSION = "2026-10-21-portable-v1";
@@ -328,11 +331,18 @@ export default function registerJevCompletionGate(pi: ExtensionAPI): void {
 			if (!input.userRequest) {
 				throw new Error("No human-origin request evidence is available on the current native branch; no completion verdict was requested");
 			}
-			if (input.userRequest.length > MAX_MESSAGE_CHARS) {
-				throw new Error(`Human request length ${input.userRequest.length} exceeds the ${MAX_MESSAGE_CHARS}-character limit; evidence was not truncated.`);
-			}
-			if (input.terminalAnswer.length > MAX_TERMINAL_ANSWER_CHARS) {
-				throw new Error(`Terminal answer length ${input.terminalAnswer.length} exceeds the ${MAX_TERMINAL_ANSWER_CHARS}-character limit; evidence was not truncated.`);
+			// Oversized evidence is a deliberate skip, not a failure: the answer stands, unjudged and never truncated.
+			const oversized = input.userRequest.length > MAX_MESSAGE_CHARS
+				? `Human request length ${input.userRequest.length} exceeds the ${MAX_MESSAGE_CHARS}-character judged window`
+				: input.terminalAnswer.length > MAX_TERMINAL_ANSWER_CHARS
+					? `Answer length ${input.terminalAnswer.length} exceeds the ${MAX_TERMINAL_ANSWER_CHARS}-character judged window`
+					: undefined;
+			if (oversized) {
+				const reason = `${oversized}; the answer stands, not evaluated and not truncated.`;
+				recordDecision(event, input, { status: "skipped", kind: "oversized", reason }, "skipped", stage, undefined, recapRequests);
+				showCompletionView(ctx, { effect: "skipped", failure: reason, failureTitle: "Too long to judge" }, generation);
+				lastFailure = undefined;
+				return;
 			}
 			stage = "recap";
 			activeRecapRequests = recapRequests;
